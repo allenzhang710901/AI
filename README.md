@@ -1,13 +1,10 @@
-# 从 0 开始的 AI：一个可运行的中文命令行助手
+# 从 0 开始的 AI：本地中文命令行助手（可训练）
 
-这个项目提供了一个**不依赖云 API** 的最小 AI 示例：
+这个项目是一个**纯本地、零依赖云 API** 的 AI 入门示例。
 
-- 使用纯 Python 实现一个朴素贝叶斯文本分类器。
-- 用少量中文语料训练「意图识别」模型。
-- 在命令行里进行对话，根据识别出的意图给出回复。
-
-> 目标：帮助你理解“从 0 开始写一个 AI”的最小闭环：
-> 数据 → 训练 → 预测 → 交互。
+- 用朴素贝叶斯做意图分类。
+- 支持关键词路由 + 相似度兜底。
+- 支持你自己准备数据进行训练并保存模型。
 
 ---
 
@@ -15,77 +12,79 @@
 
 - Python 3.9+
 
-无需额外第三方依赖。
-
 ---
 
-## 2. 最快运行（更省事）
-
-### 方式 A：一键跑 demo（推荐）
+## 2. 快速运行
 
 ```bash
 python main.py --demo
-```
-
-### 方式 B：单次提问（不用进入交互）
-
-```bash
 python main.py --ask "18*7等于多少"
 ```
 
-### 方式 C：普通交互模式
+---
+
+## 3. 我如何训练他（重点）
+
+### 3.1 使用内置数据训练
 
 ```bash
-python main.py
+python train.py --out model.json
 ```
 
-输入 `退出` 结束。
+训练完成后使用：
+
+```bash
+python main.py --model model.json --ask "你好"
+```
+
+### 3.2 用你自己的数据训练
+
+先新建一个 JSON 文件，比如 `my_data.json`：
+
+```json
+{
+  "greeting": ["你好", "在吗", "哈喽"],
+  "math": ["帮我算一下", "18*7等于多少", "计算这个表达式"],
+  "recommend": ["推荐一本书", "我该学什么", "给我建议"]
+}
+```
+
+然后训练：
+
+```bash
+python train.py --data my_data.json --out my_model.json
+```
+
+最后加载你的模型：
+
+```bash
+python main.py --model my_model.json
+```
 
 ---
 
-## 3. 额外便捷启动方式
+## 4. 命令速查
 
-Linux / macOS：
-
-```bash
-./run.sh --demo
-```
-
-Windows：
-
-```bat
-run.bat --demo
-```
-
-也支持模块方式：
-
-```bash
-python -m ai_from_scratch --demo
-```
+- 交互模式：`python main.py`
+- 单次提问：`python main.py --ask "你的问题"`
+- 演示模式：`python main.py --demo`
+- 模型训练：`python train.py --data my_data.json --out my_model.json`
+- 加载模型：`python main.py --model my_model.json --ask "你好"`
 
 ---
 
-## 4. 项目结构
+## 5. 项目结构
 
 ```text
 .
 ├── ai_from_scratch
 │   ├── __init__.py
-│   ├── __main__.py      # 支持 python -m ai_from_scratch
-│   ├── data.py          # 训练样本
-│   └── model.py         # 朴素贝叶斯 + 聊天机器人逻辑
-├── main.py              # CLI 入口
-├── run.sh               # Linux/macOS 一键启动
-├── run.bat              # Windows 一键启动
+│   ├── __main__.py
+│   ├── data.py
+│   └── model.py
+├── main.py
+├── train.py
+├── run.sh
+├── run.bat
 └── README.md
 ```
-
----
-
-## 5. 你可以继续扩展的方向
-
-1. 增加训练数据（每个意图更多样本）。
-2. 加入分词与停用词处理。
-3. 将规则回复改成函数调用（查天气 API、写待办等）。
-4. 增加 Web 界面（Flask/FastAPI + 前端）。
-5. 引入向量检索（RAG）支持你的私有知识库。
