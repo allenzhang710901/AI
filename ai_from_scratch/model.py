@@ -15,7 +15,7 @@ from .data import TRAINING_DATA
 
 TOKEN_RE = re.compile(r"[a-zA-Z]+|\d+|[+\-*/()]")
 KEYWORD_HINTS = {
-    "greeting": ["你好", "哈喽", "在吗", "嗨", "hello", "hi"],
+    "greeting": ["你好", "哈喽", "在吗", "在么", "嗨", "hello", "hi"],
     "math": ["算", "计算", "多少", "加", "减", "乘", "除", "+", "-", "*", "/"],
     "weather": ["天气", "温度", "下雨", "晴", "阴", "热", "冷", "风"],
     "recommend": ["推荐", "建议", "学什么", "看什么", "怎么选", "路线"],
@@ -193,9 +193,16 @@ class SimpleChineseAIAssistant:
     @staticmethod
     def _is_low_signal_input(text: str) -> bool:
         stripped = text.strip()
-        return bool(re.fullmatch(r"\d+", stripped) or len(stripped) <= 1)
+        return bool(re.fullmatch(r"\d+", stripped) or len(stripped) == 1 and stripped not in {"q", "Q"})
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        return text.replace("在么", "在吗").replace("嗎", "吗")
 
     def _route_intent(self, user_text: str, bayes_pred: Prediction) -> Prediction:
+        if user_text.strip().lower() in {"q", "quit", "exit"}:
+            return Prediction("goodbye", 1.0)
+
         if self._is_low_signal_input(user_text):
             return Prediction("unknown", 0.0)
 
@@ -223,8 +230,9 @@ class SimpleChineseAIAssistant:
         return any(p in lowered for p in patterns)
 
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
-        bayes_pred = self.classifier.predict(user_text)
-        prediction = self._route_intent(user_text, bayes_pred)
+        normalized_text = self._normalize_text(user_text)
+        bayes_pred = self.classifier.predict(normalized_text)
+        prediction = self._route_intent(normalized_text, bayes_pred)
         intent = prediction.intent
 
         if intent == "greeting":
@@ -232,7 +240,7 @@ class SimpleChineseAIAssistant:
             return "你好！我能做问候、计算、天气说明和学习建议。", prediction
 
         if intent == "math":
-            math_result = self._safe_eval_expression(user_text)
+            math_result = self._safe_eval_expression(normalized_text)
             self.last_intent = intent
             if math_result is None:
                 return "我识别到你在问计算，但表达式太复杂或不合法。请试试：18*7 或 (12+8)/2。", prediction
@@ -250,7 +258,7 @@ class SimpleChineseAIAssistant:
             self.last_intent = intent
             return "好的，我们下次继续。", prediction
 
-        if self._identity_like_text(user_text):
+        if self._identity_like_text(normalized_text):
             return "我理解你在表达自己。你也可以告诉我你现在最想解决的问题，我会尽量帮你。", prediction
 
         return "这个输入信息太少或不明确。你可以试试：'帮我算 25*4'、'推荐学习路线'、'今天北京天气'。", prediction
