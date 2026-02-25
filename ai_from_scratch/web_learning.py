@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from collections import deque
 from pathlib import Path
 from typing import Dict, Tuple
 from urllib import error, parse, request
@@ -89,6 +91,48 @@ def fetch_web_summary(topic: str) -> str | None:
     return _fetch_duckduckgo_summary(topic)
 
 
+def discover_related_topics(topic: str) -> list[str]:
+    """Discover related topics from DuckDuckGo for deep-sync expansion."""
+    query = parse.urlencode({"q": topic, "format": "json", "no_html": 1, "skip_disambig": 0})
+    url = DUCKDUCKGO_API.format(query)
+    payload = _http_get_json(url)
+    if not payload:
+        return []
+
+    results: list[str] = []
+    related = payload.get("RelatedTopics")
+    if not isinstance(related, list):
+        return results
+
+    for item in related:
+        if isinstance(item, dict):
+            text = item.get("Text")
+            if isinstance(text, str) and text.strip():
+                candidate = text.split(" - ")[0].strip()
+                if 2 <= len(candidate) <= 40:
+                    results.append(candidate)
+            topics = item.get("Topics")
+            if isinstance(topics, list):
+                for sub in topics:
+                    if isinstance(sub, dict):
+                        sub_text = sub.get("Text")
+                        if isinstance(sub_text, str) and sub_text.strip():
+                            candidate = sub_text.split(" - ")[0].strip()
+                            if 2 <= len(candidate) <= 40:
+                                results.append(candidate)
+        if len(results) >= 12:
+            break
+
+    dedup: list[str] = []
+    seen: set[str] = set()
+    for r in results:
+        key = r.lower()
+        if key not in seen:
+            seen.add(key)
+            dedup.append(r)
+    return dedup[:12]
+
+
 class WebKnowledgeBase:
     """Persistent local cache for web-learned knowledge snippets."""
 
@@ -171,3 +215,38 @@ class WebKnowledgeBase:
         if score < 0.5:
             return None
         return topic, summary
+
+
+    def deep_sync(self, seed_topics: list[str], time_budget_s: int = 120, max_topics: int = 200) -> dict:
+        """Continuously crawl and cache web summaries for a period of time."""
+        start = time.time()
+        queue = deque([_normalize_topic(t) for t in seed_topics if _normalize_topic(t)])
+        if not queue:
+            queue = deque(["人工智能", "minecraft", "王者荣耀", "红楼梦", "机器学习"])
+
+        visited: set[str] = set(k.lower() for k in self.data.keys())
+        learned_count = 0
+        tried_count = 0
+
+        while queue and (time.time() - start) < time_budget_s and tried_count < max_topics:
+            topic = queue.popleft()
+            key = topic.lower()
+            if key in visited:
+                continue
+            visited.add(key)
+            tried_count += 1
+
+            ok, _ = self.learn_topic(topic)
+            if ok:
+                learned_count += 1
+                for related in discover_related_topics(topic):
+                    rkey = related.lower()
+                    if rkey not in visited:
+                        queue.append(related)
+
+        return {
+            "learned": learned_count,
+            "tried": tried_count,
+            "remaining_queue": len(queue),
+            "elapsed_s": round(time.time() - start, 2),
+        }

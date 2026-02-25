@@ -27,6 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-auto-learn", action="store_true", help="关闭对话过程中的自动学习")
     parser.add_argument("--web-learn", action="store_true", help="开启联网学习（手动学习+低置信度<80%%自动联网查询）")
     parser.add_argument("--doctor", action="store_true", help="自检网络与写权限，排查秒崩溃")
+    parser.add_argument("--startup-sync-seconds", type=int, default=0, help="启动时深度联网学习秒数（可设置很长）")
+    parser.add_argument("--seed-topics", type=str, default="", help="深度学习种子主题，逗号分隔")
     return parser
 
 
@@ -110,6 +112,12 @@ def main() -> None:
             return
 
         assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn, web_learn=args.web_learn)
+
+        if args.startup_sync_seconds > 0:
+            seed_topics = [x.strip() for x in args.seed_topics.split(',') if x.strip()]
+            print(f"[sync] 启动深度联网学习，预计耗时 {args.startup_sync_seconds} 秒...")
+            stats = assistant.startup_deep_sync(args.startup_sync_seconds, seed_topics=seed_topics)
+            print(f"[sync] 完成: learned={stats['learned']}, tried={stats['tried']}, elapsed={stats['elapsed_s']}s")
 
         if args.demo:
             run_demo(assistant)

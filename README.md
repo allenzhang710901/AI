@@ -125,12 +125,28 @@ python main.py --web-learn
 2. **目录写权限**：用于保存 `.ai_learned_data.json` / `.ai_web_knowledge.json`。
 3. **无需管理员权限**（一般情况）。
 
+
+### 3.7 启动即长时间联网“扫库”
+
+如果你希望每次启动都先花很长时间联网学习，再开始对话：
+
+```bash
+python main.py --web-learn --startup-sync-seconds 1800 --seed-topics "人工智能,minecraft,王者荣耀,红楼梦"
+```
+
+- `--startup-sync-seconds`：启动时联网学习时长（秒），可设很大。
+- `--seed-topics`：逗号分隔的种子主题，会沿相关词继续扩展抓取并缓存。
+- Windows 可直接双击 `run.bat`（默认已带 300 秒启动深度学习）。
+
+> 注意：严格意义上“全网、无限平台、无限时间”在工程上不可行。当前实现是“多源+扩展+可长时间运行”的可控方案。
+
 ### 3.4 常见问题（你这种情况）
 
 - Windows 下用 `run.bat` 启动默认会带 `--web-learn`，会保持联网学习模式。
 - 联网学习触发规则：手动输入“学习 关键词”，或当前回答置信度 < 80% 时自动联网尝试。
 - 知识问法优化：像“我的世界是啥 / minecraft是啥 / 王者荣耀是啥”会优先抽取主题联网查询。
 - 回答策略优化：如果你问题里有多个关键词，助手会看“匹配覆盖率”；只命中其中一个词时，会明确说“只懂基础，不是全懂”。
+- 每次回答前会先做内部“思考步骤”（主题抽取、意图判断、关系判断）再决定是否搜索。
 - 关系问句优化：如 “is honor of king same as 王者荣耀” 会优先走实体关系判断。
 - 若你只说“你去查啊”这类无主题命令，助手会要求你补全主题，而不是瞎查。
 - 对“我是谁”这类自我身份问题，不再误查电影词条，会给出更合适的人类化回应。
@@ -153,6 +169,7 @@ python main.py --web-learn
 - 加载模型：`python main.py --model my_model.json --ask "你好"`
 - 开启联网学习：`python main.py --web-learn`（然后输入：`学习 人工智能`）
 - 稳定性自检：`python main.py --doctor`
+- 启动深度联网学习：`python main.py --web-learn --startup-sync-seconds 1800`
 
 ---
 

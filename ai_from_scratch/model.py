@@ -186,6 +186,13 @@ class SimpleChineseAIAssistant:
             return False
         return True
 
+    def startup_deep_sync(self, seconds: int, seed_topics: list[str] | None = None) -> dict:
+        if not self.web_learning_enabled:
+            return {"learned": 0, "tried": 0, "remaining_queue": 0, "elapsed_s": 0.0}
+        topics = seed_topics or list(self.web_knowledge.data.keys())
+        stats = self.web_knowledge.deep_sync(seed_topics=topics, time_budget_s=seconds)
+        return stats
+
     def _merged_training_data(self) -> Dict[str, List[str]]:
         merged = {intent: list(samples) for intent, samples in TRAINING_DATA.items()}
         for intent, samples in self.learned_data.items():
@@ -420,8 +427,18 @@ class SimpleChineseAIAssistant:
         _, summary = learned
         return f"我刚联网查到：{summary}", True
 
+    def _think_before_answer(self, text: str) -> dict:
+        """Internal thinking step before answer/search (not exposed verbosely)."""
+        return {
+            "normalized": self._normalize_text(text),
+            "is_identity": self._identity_like_text(text),
+            "is_prompt_only": self._is_non_topic_prompt(text),
+            "candidate_topic": self._extract_knowledge_topic(text),
+        }
+
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
-        normalized_text = self._normalize_text(user_text)
+        thought = self._think_before_answer(user_text)
+        normalized_text = thought["normalized"]
 
         compare_answer = self._try_compare_entities_question(normalized_text)
         if compare_answer:
