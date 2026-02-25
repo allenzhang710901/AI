@@ -14,7 +14,7 @@ import argparse
 from ai_from_scratch import SimpleChineseAIAssistant
 
 
-EXIT_WORDS = {"退出", "再见", "bye", "quit", "exit", "q"}
+EXIT_WORDS = {"退出", "结束", "再见", "bye", "quit", "exit", "q"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ask", type=str, help="单次提问后直接返回结果")
     parser.add_argument("--demo", action="store_true", help="运行内置示例")
     parser.add_argument("--model", type=str, default="", help="可选：加载 train.py 训练出的模型文件")
+    parser.add_argument("--no-auto-learn", action="store_true", help="关闭对话过程中的自动学习")
     return parser
 
 
@@ -35,6 +36,7 @@ def run_interactive(assistant: SimpleChineseAIAssistant) -> None:
 
         if user_text.lower() in EXIT_WORDS:
             print("AI: 好的，期待下次见面！")
+            assistant.persist_learned_data()
             break
 
         answer, pred = assistant.reply(user_text)
@@ -47,6 +49,7 @@ def run_once(assistant: SimpleChineseAIAssistant, user_text: str) -> None:
     print(f"你: {user_text}")
     print(f"AI: {answer}")
     print(f"(意图: {pred.intent}, 置信度: {pred.confidence:.2f})")
+    assistant.persist_learned_data()
 
 
 def run_demo(assistant: SimpleChineseAIAssistant) -> None:
@@ -57,15 +60,18 @@ def run_demo(assistant: SimpleChineseAIAssistant) -> None:
         print("-" * 40)
 
 
-def build_assistant(model_path: str) -> SimpleChineseAIAssistant:
+def build_assistant(model_path: str, auto_learn: bool) -> SimpleChineseAIAssistant:
     if model_path:
-        return SimpleChineseAIAssistant.from_model_file(model_path)
-    return SimpleChineseAIAssistant()
+        # Load trained model weights but keep auto-learning memory file behavior.
+        assistant = SimpleChineseAIAssistant.from_model_file(model_path)
+        assistant.auto_learn = auto_learn
+        return assistant
+    return SimpleChineseAIAssistant(auto_learn=auto_learn)
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    assistant = build_assistant(args.model)
+    assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn)
 
     if args.demo:
         run_demo(assistant)

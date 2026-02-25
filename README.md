@@ -124,3 +124,29 @@ python main.py --model model.json
 ├── run.bat
 └── README.md
 ```
+
+---
+
+
+## 6. 能让它自动慢慢变智能吗？
+
+可以。现在默认开启了**自动学习**：
+
+- 每次你对话后，若模型对某句判断非常有把握（高置信度），会把该句加入本地学习库。
+- 学习库会保存到项目根目录的 `.ai_learned_data.json`。
+- 下次启动时会自动加载这些历史样本，让识别逐步贴近你的说话习惯。
+
+你可以这样验证：
+
+```bash
+python main.py
+# 多聊几句问候/天气/推荐
+# 退出后会看到 .ai_learned_data.json
+```
+
+如需关闭自动学习：
+
+```bash
+python main.py --no-auto-learn
+```
+

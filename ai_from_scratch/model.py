@@ -25,6 +25,8 @@ MATH_EXPR_RE = re.compile(r"[\d\s+\-*/().]+")
 MIN_CONFIDENCE = 0.45
 MAX_EXPR_LEN = 60
 MAX_NUMBER_DIGITS = 12
+AUTO_LEARN_MIN_CONFIDENCE = 0.9
+AUTO_SAVE_EVERY = 3
 
 
 @dataclass
@@ -132,18 +134,63 @@ class NaiveBayesIntentClassifier:
 
 
 class SimpleChineseAIAssistant:
-    """Assistant with hybrid intent routing + Naive Bayes fallback."""
+    """Assistant with hybrid intent routing + Naive Bayes fallback + auto learning."""
 
-    def __init__(self, classifier: NaiveBayesIntentClassifier | None = None) -> None:
+    def __init__(
+        self,
+        classifier: NaiveBayesIntentClassifier | None = None,
+        learned_data_path: str | Path = ".ai_learned_data.json",
+        auto_learn: bool = True,
+    ) -> None:
+        self.learned_data_path = Path(learned_data_path)
+        self.auto_learn = auto_learn
+        self.learned_data = self._load_learned_data()
         self.classifier = classifier or NaiveBayesIntentClassifier()
         if not self.classifier.is_fitted:
-            self.classifier.fit(TRAINING_DATA)
+            self._refit_with_learned_data()
         self.last_intent: str | None = None
+        self.new_samples_since_save = 0
 
     @classmethod
     def from_model_file(cls, model_path: str | Path) -> "SimpleChineseAIAssistant":
         classifier = NaiveBayesIntentClassifier.load(model_path)
         return cls(classifier=classifier)
+
+    def _load_learned_data(self) -> Dict[str, List[str]]:
+        if not self.learned_data_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.learned_data_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+        if not isinstance(payload, dict):
+            return {}
+        cleaned: Dict[str, List[str]] = {}
+        for intent, items in payload.items():
+            if isinstance(intent, str) and isinstance(items, list):
+                cleaned[intent] = [x for x in items if isinstance(x, str) and x.strip()]
+        return cleaned
+
+    def persist_learned_data(self) -> None:
+        self.learned_data_path.write_text(
+            json.dumps(self.learned_data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    def _merged_training_data(self) -> Dict[str, List[str]]:
+        merged = {intent: list(samples) for intent, samples in TRAINING_DATA.items()}
+        for intent, samples in self.learned_data.items():
+            merged.setdefault(intent, [])
+            seen = set(merged[intent])
+            for text in samples:
+                if text not in seen:
+                    merged[intent].append(text)
+                    seen.add(text)
+        return merged
+
+    def _refit_with_learned_data(self) -> None:
+        merged = self._merged_training_data()
+        self.classifier.fit(merged)
 
     @staticmethod
     def _safe_eval_expression(text: str) -> str | None:
@@ -229,6 +276,34 @@ class SimpleChineseAIAssistant:
         lowered = text.lower()
         return any(p in lowered for p in patterns)
 
+    def _should_auto_learn(self, text: str, prediction: Prediction) -> bool:
+        if not self.auto_learn:
+            return False
+        if prediction.intent in {"unknown", "goodbye"}:
+            return False
+        if prediction.confidence < AUTO_LEARN_MIN_CONFIDENCE:
+            return False
+        if self._is_low_signal_input(text) or self._identity_like_text(text):
+            return False
+        if len(text.strip()) < 2 or len(text.strip()) > 40:
+            return False
+        if prediction.intent == "math" and self._safe_eval_expression(text) is None:
+            return False
+        return True
+
+    def _learn_from_interaction(self, text: str, prediction: Prediction) -> None:
+        if not self._should_auto_learn(text, prediction):
+            return
+        bucket = self.learned_data.setdefault(prediction.intent, [])
+        if text in bucket:
+            return
+        bucket.append(text)
+        self.new_samples_since_save += 1
+        self._refit_with_learned_data()
+        if self.new_samples_since_save >= AUTO_SAVE_EVERY:
+            self.persist_learned_data()
+            self.new_samples_since_save = 0
+
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
         normalized_text = self._normalize_text(user_text)
         bayes_pred = self.classifier.predict(normalized_text)
@@ -237,6 +312,7 @@ class SimpleChineseAIAssistant:
 
         if intent == "greeting":
             self.last_intent = intent
+            self._learn_from_interaction(normalized_text, prediction)
             return "你好！我能做问候、计算、天气说明和学习建议。", prediction
 
         if intent == "math":
@@ -244,14 +320,17 @@ class SimpleChineseAIAssistant:
             self.last_intent = intent
             if math_result is None:
                 return "我识别到你在问计算，但表达式太复杂或不合法。请试试：18*7 或 (12+8)/2。", prediction
+            self._learn_from_interaction(normalized_text, prediction)
             return f"计算结果是：{math_result}", prediction
 
         if intent == "weather":
             self.last_intent = intent
+            self._learn_from_interaction(normalized_text, prediction)
             return "我目前是离线版，不能实时联网查天气；你可以告诉我城市，我给你出行建议模板。", prediction
 
         if intent == "recommend":
             self.last_intent = intent
+            self._learn_from_interaction(normalized_text, prediction)
             return "如果你从 0 开始：先学 Python 基础，再做 2 个小项目，然后学机器学习与深度学习。", prediction
 
         if intent == "goodbye":
