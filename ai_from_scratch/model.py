@@ -31,6 +31,7 @@ AUTO_SAVE_EVERY = 3
 WEB_LOOKUP_CONFIDENCE_THRESHOLD = 0.8
 THINKING_CUE_WORDS = ["思路", "步骤", "方法", "先", "然后", "最后", "框架", "拆解", "验证"]
 REPLICATE_CUE_WORDS = ["复刻", "照着", "按这个思路", "按这个逻辑", "模仿", "套用"]
+THINK_REQUEST_CUES = ["思考", "分析", "为什么", "怎么办", "怎么做", "规划", "方案", "决策"]
 
 
 @dataclass
@@ -445,6 +446,34 @@ class SimpleChineseAIAssistant:
         lowered = text.lower()
         return any(c in lowered for c in REPLICATE_CUE_WORDS)
 
+    @staticmethod
+    def _is_thinking_request(text: str) -> bool:
+        lowered = text.lower()
+        return any(c in lowered for c in THINK_REQUEST_CUES)
+
+    @staticmethod
+    def _extract_goal(text: str) -> str:
+        cleaned = text.strip()
+        cleaned = re.sub(r"^(请|请你|帮我|麻烦你|我想|我需要)", "", cleaned)
+        cleaned = re.sub(r"(怎么做|怎么办|怎么学|如何|请分析|请思考)$", "", cleaned)
+        cleaned = cleaned.strip(" ，。！？,.!?")
+        return cleaned or "当前问题"
+
+    def _build_thinking_response(self, text: str) -> str:
+        goal = self._extract_goal(text)
+        reasoning_hint = self._reasoning_hint_for_query(text)
+        lines = [
+            "我不只给结论，我先把思考过程展开：",
+            f"1) 目标定义：先明确“{goal}”的结果标准。",
+            "2) 关键约束：时间/能力/资源分别有什么限制。",
+            "3) 方案对比：至少给两个可执行方案，并说明取舍。",
+            "4) 执行与复盘：先做最小一步，观察结果后再调整。",
+        ]
+        if reasoning_hint:
+            lines.append(reasoning_hint)
+        lines.append("如果你愿意，我可以继续把这题拆成 3~5 条你今天就能做的动作。")
+        return "\n".join(lines)
+
     def _replicate_with_reasoning(self, text: str) -> str:
         base = re.sub(r"(复刻|照着|按这个思路|按这个逻辑|模仿|套用)", "", text, flags=re.IGNORECASE).strip(" ：:，,。")
         target = base if base else "你的问题"
@@ -580,6 +609,8 @@ class SimpleChineseAIAssistant:
         if intent == "recommend":
             self.last_intent = intent
             self._learn_from_interaction(normalized_text, prediction)
+            if self._is_thinking_request(normalized_text) or len(normalized_text) >= 10:
+                return self._build_thinking_response(normalized_text), prediction
             base = "如果你从 0 开始：先学 Python 基础，再做 2 个小项目，然后学机器学习与深度学习。"
             reasoning_hint = self._reasoning_hint_for_query(normalized_text)
             if reasoning_hint:
@@ -596,5 +627,8 @@ class SimpleChineseAIAssistant:
         reasoning_hint = self._reasoning_hint_for_query(normalized_text)
         if reasoning_hint:
             return f"这个问题我还不够确定，但我可以按这个思路帮你：{reasoning_hint} 你可以再补一个具体目标。", prediction
+
+        if len(normalized_text.strip()) >= 4:
+            return self._build_thinking_response(normalized_text), prediction
 
         return "这个输入信息太少或不明确。你可以试试：'帮我算 25*4'、'推荐学习路线'、'今天北京天气'。", prediction
