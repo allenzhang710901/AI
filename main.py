@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--demo", action="store_true", help="运行内置示例")
     parser.add_argument("--model", type=str, default="", help="可选：加载 train.py 训练出的模型文件")
     parser.add_argument("--no-auto-learn", action="store_true", help="关闭对话过程中的自动学习")
-    parser.add_argument("--web-learn", action="store_true", help="开启联网学习（按“学习 关键词”触发）")
+    parser.add_argument("--web-learn", action="store_true", help="开启联网学习（手动学习+低置信度<80%自动联网查询）")
     return parser
 
 

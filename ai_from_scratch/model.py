@@ -28,6 +28,7 @@ MAX_EXPR_LEN = 60
 MAX_NUMBER_DIGITS = 12
 AUTO_LEARN_MIN_CONFIDENCE = 0.9
 AUTO_SAVE_EVERY = 3
+WEB_LOOKUP_CONFIDENCE_THRESHOLD = 0.8
 
 
 @dataclass
@@ -324,6 +325,35 @@ class SimpleChineseAIAssistant:
         topic, summary = found
         return f"我之前上网学过“{topic}”：{summary}"
 
+    @staticmethod
+    def _guess_web_topic(text: str) -> str:
+        topic = re.sub(r"[，。！？,.!?]", " ", text).strip()
+        return re.sub(r"\s+", " ", topic)
+
+    def _try_web_lookup_for_query(self, text: str, prediction: Prediction) -> str | None:
+        if not self.web_learning_enabled:
+            return None
+        if prediction.confidence >= WEB_LOOKUP_CONFIDENCE_THRESHOLD:
+            return None
+        topic = self._guess_web_topic(text)
+        if len(topic) < 2 or self._is_low_signal_input(topic):
+            return None
+
+        # 先看缓存
+        found = self.web_knowledge.find_relevant(topic)
+        if found:
+            _, summary = found
+            return f"我在线知识库里有相关内容：{summary}"
+
+        ok, _ = self.web_knowledge.learn_topic(topic)
+        if not ok:
+            return None
+        learned = self.web_knowledge.find_relevant(topic)
+        if not learned:
+            return None
+        _, summary = learned
+        return f"我刚联网查到：{summary}"
+
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
         normalized_text = self._normalize_text(user_text)
 
@@ -344,6 +374,10 @@ class SimpleChineseAIAssistant:
         bayes_pred = self.classifier.predict(normalized_text)
         prediction = self._route_intent(normalized_text, bayes_pred)
         intent = prediction.intent
+
+        web_answer = self._try_web_lookup_for_query(normalized_text, prediction)
+        if web_answer:
+            return web_answer, Prediction(intent="recommend", confidence=0.8)
 
         if intent == "greeting":
             self.last_intent = intent
