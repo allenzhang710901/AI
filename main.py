@@ -10,6 +10,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import socket
+from pathlib import Path
 
 from ai_from_scratch import SimpleChineseAIAssistant
 
@@ -24,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", type=str, default="", help="可选：加载 train.py 训练出的模型文件")
     parser.add_argument("--no-auto-learn", action="store_true", help="关闭对话过程中的自动学习")
     parser.add_argument("--web-learn", action="store_true", help="开启联网学习（手动学习+低置信度<80%自动联网查询）")
+    parser.add_argument("--doctor", action="store_true", help="自检网络与写权限，排查秒崩溃")
     return parser
 
 
@@ -61,29 +64,66 @@ def run_demo(assistant: SimpleChineseAIAssistant) -> None:
         print("-" * 40)
 
 
+
+
+def run_doctor() -> None:
+    print("[doctor] 开始自检...")
+
+    # 1) python 可写当前目录
+    try:
+        probe = Path('.doctor_write_test.tmp')
+        probe.write_text('ok', encoding='utf-8')
+        probe.unlink(missing_ok=True)
+        print('[doctor] 写权限: OK')
+    except Exception as exc:
+        print(f'[doctor] 写权限: FAIL ({exc})')
+
+    # 2) DNS / 网络基础
+    try:
+        socket.gethostbyname('zh.wikipedia.org')
+        print('[doctor] DNS: OK')
+    except Exception as exc:
+        print(f'[doctor] DNS: FAIL ({exc})')
+
+    print('[doctor] 建议: Windows 用 run.bat 启动；若仍异常，先运行 python main.py --demo 验证基础功能。')
+
 def build_assistant(model_path: str, auto_learn: bool, web_learn: bool) -> SimpleChineseAIAssistant:
     if model_path:
-        # Load trained model weights but keep auto-learning memory file behavior.
-        assistant = SimpleChineseAIAssistant.from_model_file(model_path)
-        assistant.auto_learn = auto_learn
-        assistant.web_learning_enabled = web_learn
-        return assistant
-    return SimpleChineseAIAssistant(auto_learn=auto_learn, web_learning_enabled=web_learn)
+        try:
+            assistant = SimpleChineseAIAssistant.from_model_file(model_path)
+            assistant.auto_learn = auto_learn
+            assistant.web_learning_enabled = web_learn
+            return assistant
+        except Exception as exc:
+            print(f"[warn] 模型加载失败，已回退到内置模型：{exc}")
+    try:
+        return SimpleChineseAIAssistant(auto_learn=auto_learn, web_learning_enabled=web_learn)
+    except Exception as exc:
+        raise RuntimeError(f"助手初始化失败：{exc}") from exc
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn, web_learn=args.web_learn)
+    try:
+        if args.doctor:
+            run_doctor()
+            return
 
-    if args.demo:
-        run_demo(assistant)
-        return
+        assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn, web_learn=args.web_learn)
 
-    if args.ask:
-        run_once(assistant, args.ask)
-        return
+        if args.demo:
+            run_demo(assistant)
+            return
 
-    run_interactive(assistant)
+        if args.ask:
+            run_once(assistant, args.ask)
+            return
+
+        run_interactive(assistant)
+    except KeyboardInterrupt:
+        print('\nAI: 已停止，欢迎下次再聊。')
+    except Exception as exc:
+        print(f"[fatal] 程序异常退出：{exc}")
 
 
 if __name__ == "__main__":

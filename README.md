@@ -105,11 +105,25 @@ python main.py --web-learn
 学习 量子计算
 ```
 
-助手会尝试从公开百科抓取摘要，并保存到本地 `.ai_web_knowledge.json`。
+助手会尝试从公开网络源抓取摘要（优先百科，失败时走备用搜索摘要），并保存到本地 `.ai_web_knowledge.json`。
 下次你问相关主题时，它会优先使用已学习到的本地知识回答。
 
 > 注意：联网学习依赖网络可用性与公开站点返回结果。
 > 已开启时，当助手对当前问题置信度 < 80% 会自动尝试联网查询。
+
+
+### 3.6 稳定性与权限（针对“秒崩溃”）
+
+如果你遇到“秒崩溃”，现在版本会自动兜底：
+
+- `--model` 指向不存在/损坏文件时，不会崩溃，会自动回退到内置模型。
+- 读写学习文件失败时，会给出提示，不会直接退出。
+
+权限方面通常只需要：
+
+1. **网络权限**：用于 `--web-learn` 联网抓取摘要（HTTPS）。
+2. **目录写权限**：用于保存 `.ai_learned_data.json` / `.ai_web_knowledge.json`。
+3. **无需管理员权限**（一般情况）。
 
 ### 3.4 常见问题（你这种情况）
 
@@ -133,6 +147,7 @@ python main.py --web-learn
 - 用 JSON 训练：`python train.py --data my_data.json --out my_model.json`
 - 加载模型：`python main.py --model my_model.json --ask "你好"`
 - 开启联网学习：`python main.py --web-learn`（然后输入：`学习 人工智能`）
+- 稳定性自检：`python main.py --doctor`
 
 ---
 

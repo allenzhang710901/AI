@@ -1,4 +1,4 @@
-"""Lightweight web-learning helpers using public encyclopedia summaries."""
+"""Lightweight web-learning helpers using public encyclopedia/search summaries."""
 
 from __future__ import annotations
 
@@ -9,26 +9,30 @@ from typing import Dict, Tuple
 from urllib import error, parse, request
 
 WIKI_SUMMARY_API = "https://zh.wikipedia.org/api/rest_v1/page/summary/{}"
+DUCKDUCKGO_API = "https://api.duckduckgo.com/?{}"
 
 
 def _normalize_topic(topic: str) -> str:
     return re.sub(r"\s+", " ", topic).strip()
 
 
-def fetch_wikipedia_summary(topic: str) -> str | None:
-    """Fetch a short Chinese summary from Wikipedia REST API."""
-    topic = _normalize_topic(topic)
-    if not topic:
-        return None
-
-    encoded = parse.quote(topic)
-    url = WIKI_SUMMARY_API.format(encoded)
+def _http_get_json(url: str) -> dict | None:
     req = request.Request(url, headers={"User-Agent": "ai-from-scratch/1.0"})
-
     try:
         with request.urlopen(req, timeout=8) as resp:  # noqa: S310
             payload = json.loads(resp.read().decode("utf-8"))
     except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _fetch_wikipedia_summary(topic: str) -> str | None:
+    encoded = parse.quote(topic)
+    url = WIKI_SUMMARY_API.format(encoded)
+    payload = _http_get_json(url)
+    if not payload:
         return None
 
     extract = payload.get("extract")
@@ -37,6 +41,50 @@ def fetch_wikipedia_summary(topic: str) -> str | None:
 
     clean = extract.strip().replace("\n", " ")
     return clean[:500]
+
+
+def _fetch_duckduckgo_summary(topic: str) -> str | None:
+    query = parse.urlencode({"q": topic, "format": "json", "no_html": 1, "skip_disambig": 0})
+    url = DUCKDUCKGO_API.format(query)
+    payload = _http_get_json(url)
+    if not payload:
+        return None
+
+    candidates: list[str] = []
+    abstract = payload.get("AbstractText")
+    if isinstance(abstract, str) and abstract.strip():
+        candidates.append(abstract.strip())
+
+    heading = payload.get("Heading")
+    if isinstance(heading, str) and heading.strip() and candidates:
+        candidates[0] = f"{heading.strip()}：{candidates[0]}"
+
+    related = payload.get("RelatedTopics")
+    if isinstance(related, list):
+        for item in related:
+            if isinstance(item, dict):
+                text = item.get("Text")
+                if isinstance(text, str) and text.strip():
+                    candidates.append(text.strip())
+                    break
+
+    if not candidates:
+        return None
+
+    return candidates[0][:500]
+
+
+def fetch_web_summary(topic: str) -> str | None:
+    """Fetch a short summary from multiple public sources."""
+    topic = _normalize_topic(topic)
+    if not topic:
+        return None
+
+    summary = _fetch_wikipedia_summary(topic)
+    if summary:
+        return summary
+
+    return _fetch_duckduckgo_summary(topic)
 
 
 class WebKnowledgeBase:
@@ -66,20 +114,25 @@ class WebKnowledgeBase:
                 cleaned[topic] = {"summary": summary.strip(), "source": str(source)}
         return cleaned
 
-    def save(self) -> None:
-        self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+    def save(self) -> bool:
+        try:
+            self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            return False
+        return True
 
     def learn_topic(self, topic: str) -> Tuple[bool, str]:
         topic = _normalize_topic(topic)
         if not topic:
             return False, "请告诉我要学习的主题，例如：学习 人工智能。"
 
-        summary = fetch_wikipedia_summary(topic)
+        summary = fetch_web_summary(topic)
         if not summary:
             return False, f"我暂时没能从网上学到“{topic}”，你可以换个更具体的关键词试试。"
 
-        self.data[topic] = {"summary": summary, "source": "zh.wikipedia.org"}
-        self.save()
+        self.data[topic] = {"summary": summary, "source": "web"}
+        if not self.save():
+            return False, "我学到了内容，但本地保存失败（可能是目录写权限问题）。"
         return True, f"我刚刚上网学习了“{topic}”。"
 
     def find_relevant(self, query: str) -> Tuple[str, str] | None:

@@ -177,10 +177,14 @@ class SimpleChineseAIAssistant:
                 cleaned[intent] = [x for x in items if isinstance(x, str) and x.strip()]
         return cleaned
 
-    def persist_learned_data(self) -> None:
-        self.learned_data_path.write_text(
-            json.dumps(self.learned_data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+    def persist_learned_data(self) -> bool:
+        try:
+            self.learned_data_path.write_text(
+                json.dumps(self.learned_data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except OSError:
+            return False
+        return True
 
     def _merged_training_data(self) -> Dict[str, List[str]]:
         merged = {intent: list(samples) for intent, samples in TRAINING_DATA.items()}
