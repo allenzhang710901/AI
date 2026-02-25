@@ -14,6 +14,28 @@ WIKI_SUMMARY_API = "https://zh.wikipedia.org/api/rest_v1/page/summary/{}"
 DUCKDUCKGO_API = "https://api.duckduckgo.com/?{}"
 TOKEN_RE = re.compile(r"[a-zA-Z]+|\d+|[\u4e00-\u9fff]{2,}")
 STOPWORDS = {"是", "啥", "什么", "有哪些", "有啥", "一下", "介绍", "资料", "吗", "呢", "的"}
+DEFAULT_DEEP_SYNC_SEEDS = [
+    "人工智能",
+    "机器学习",
+    "深度学习",
+    "Python",
+    "数学",
+    "物理学",
+    "化学",
+    "生物学",
+    "历史",
+    "地理",
+    "经济学",
+    "哲学",
+    "编程",
+    "网络安全",
+    "数据库",
+    "操作系统",
+    "Minecraft",
+    "王者荣耀",
+    "英雄联盟",
+    "红楼梦",
+]
 
 
 def _normalize_topic(topic: str) -> str:
@@ -222,11 +244,13 @@ class WebKnowledgeBase:
         start = time.time()
         queue = deque([_normalize_topic(t) for t in seed_topics if _normalize_topic(t)])
         if not queue:
-            queue = deque(["人工智能", "minecraft", "王者荣耀", "红楼梦", "机器学习"])
+            queue = deque(DEFAULT_DEEP_SYNC_SEEDS)
 
-        visited: set[str] = set(k.lower() for k in self.data.keys())
+        visited: set[str] = set()
+        existing: set[str] = set(k.lower() for k in self.data.keys())
         learned_count = 0
         tried_count = 0
+        expanded_from_cache = 0
 
         while queue and (time.time() - start) < time_budget_s and tried_count < max_topics:
             topic = queue.popleft()
@@ -234,6 +258,17 @@ class WebKnowledgeBase:
             if key in visited:
                 continue
             visited.add(key)
+
+            # Even if topic is already cached, still try to expand related topics so startup
+            # deep-sync can continue discovering new knowledge instead of ending immediately.
+            if key in existing:
+                expanded_from_cache += 1
+                for related in discover_related_topics(topic):
+                    rkey = related.lower()
+                    if rkey not in visited:
+                        queue.append(related)
+                continue
+
             tried_count += 1
 
             ok, _ = self.learn_topic(topic)
@@ -247,6 +282,7 @@ class WebKnowledgeBase:
         return {
             "learned": learned_count,
             "tried": tried_count,
+            "expanded_from_cache": expanded_from_cache,
             "remaining_queue": len(queue),
             "elapsed_s": round(time.time() - start, 2),
         }

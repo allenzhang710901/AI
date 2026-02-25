@@ -131,11 +131,11 @@ python main.py --web-learn
 如果你希望每次启动都先花很长时间联网学习，再开始对话：
 
 ```bash
-python main.py --web-learn --startup-sync-seconds 1800 --seed-topics "人工智能,minecraft,王者荣耀,红楼梦"
+python main.py --web-learn --startup-sync-seconds 1800
 ```
 
 - `--startup-sync-seconds`：启动时联网学习时长（秒），可设很大。
-- `--seed-topics`：逗号分隔的种子主题，会沿相关词继续扩展抓取并缓存。
+- `--seed-topics`：逗号分隔的种子主题（可选）。不填时会自动用内置全局主题池探索，不需要你手动给主题。
 - Windows 可直接双击 `run.bat`（默认已带 300 秒启动深度学习）。
 
 > 注意：严格意义上“全网、无限平台、无限时间”在工程上不可行。当前实现是“多源+扩展+可长时间运行”的可控方案。

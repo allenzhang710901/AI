@@ -189,7 +189,9 @@ class SimpleChineseAIAssistant:
     def startup_deep_sync(self, seconds: int, seed_topics: list[str] | None = None) -> dict:
         if not self.web_learning_enabled:
             return {"learned": 0, "tried": 0, "remaining_queue": 0, "elapsed_s": 0.0}
-        topics = seed_topics or list(self.web_knowledge.data.keys())
+        # If caller doesn't provide seeds, use WebKnowledgeBase defaults so we still crawl
+        # new topics instead of only replaying existing cache keys.
+        topics = seed_topics or []
         stats = self.web_knowledge.deep_sync(seed_topics=topics, time_budget_s=seconds)
         return stats
 

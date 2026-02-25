@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--web-learn", action="store_true", help="开启联网学习（手动学习+低置信度<80%%自动联网查询）")
     parser.add_argument("--doctor", action="store_true", help="自检网络与写权限，排查秒崩溃")
     parser.add_argument("--startup-sync-seconds", type=int, default=0, help="启动时深度联网学习秒数（可设置很长）")
-    parser.add_argument("--seed-topics", type=str, default="", help="深度学习种子主题，逗号分隔")
+    parser.add_argument("--seed-topics", type=str, default="", help="深度学习种子主题，逗号分隔；不填则自动全局探索")
     return parser
 
 
@@ -115,9 +115,15 @@ def main() -> None:
 
         if args.startup_sync_seconds > 0:
             seed_topics = [x.strip() for x in args.seed_topics.split(',') if x.strip()]
-            print(f"[sync] 启动深度联网学习，预计耗时 {args.startup_sync_seconds} 秒...")
+            if seed_topics:
+                print(f"[sync] 启动深度联网学习，预计耗时 {args.startup_sync_seconds} 秒，种子={len(seed_topics)} 个...")
+            else:
+                print(f"[sync] 启动深度联网学习，预计耗时 {args.startup_sync_seconds} 秒，未提供种子：将自动全局探索。")
             stats = assistant.startup_deep_sync(args.startup_sync_seconds, seed_topics=seed_topics)
-            print(f"[sync] 完成: learned={stats['learned']}, tried={stats['tried']}, elapsed={stats['elapsed_s']}s")
+            print(
+                f"[sync] 完成: learned={stats['learned']}, tried={stats['tried']}, "
+                f"expanded_from_cache={stats.get('expanded_from_cache', 0)}, elapsed={stats['elapsed_s']}s"
+            )
 
         if args.demo:
             run_demo(assistant)
