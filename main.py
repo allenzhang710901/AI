@@ -17,6 +17,12 @@ from ai_from_scratch import SimpleChineseAIAssistant
 
 
 EXIT_WORDS = {"退出", "结束", "再见", "bye", "quit", "exit", "q"}
+AI_MASTER_SYNC_TOPICS = [
+    "AI 思维链", "Chain of Thought", "系统提示词", "对齐", "RLHF", "RAG", "函数调用", "Agent",
+    "多智能体", "提示工程", "推理模型", "模型蒸馏", "长上下文", "记忆机制", "向量数据库", "重排序",
+    "知识图谱", "评测基准", "安全对齐", "幻觉抑制", "自反思", "计划执行", "工具使用", "代码生成",
+    "对话策略", "语气控制", "角色设定", "批判性思维", "决策理论", "问题分解", "假设验证", "反事实推理",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--doctor", action="store_true", help="自检网络与写权限，排查秒崩溃")
     parser.add_argument("--startup-sync-seconds", type=int, default=0, help="启动时深度联网学习秒数（可设置很长）")
     parser.add_argument("--seed-topics", type=str, default="", help="深度学习种子主题，逗号分隔；不填则自动全局探索")
+    parser.add_argument("--ai-all-sync", action="store_true", help="面向AI思考/表达主题的深度联网学习（默认30000秒）")
     return parser
 
 
@@ -111,15 +118,28 @@ def main() -> None:
             run_doctor()
             return
 
-        assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn, web_learn=args.web_learn)
+        effective_web_learn = args.web_learn or args.ai_all_sync
+        assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn, web_learn=effective_web_learn)
 
-        if args.startup_sync_seconds > 0:
-            seed_topics = [x.strip() for x in args.seed_topics.split(',') if x.strip()]
+        sync_seconds = args.startup_sync_seconds
+        seed_topics = [x.strip() for x in args.seed_topics.split(',') if x.strip()]
+
+        if args.ai_all_sync:
+            if sync_seconds <= 0:
+                sync_seconds = 30000
+            if not seed_topics:
+                seed_topics = list(AI_MASTER_SYNC_TOPICS)
+            print(
+                f"[sync] AI全域思考学习模式已开启：预计耗时 {sync_seconds} 秒，"
+                f"AI主题种子={len(seed_topics)} 个。"
+            )
+
+        if sync_seconds > 0:
             if seed_topics:
-                print(f"[sync] 启动深度联网学习，预计耗时 {args.startup_sync_seconds} 秒，种子={len(seed_topics)} 个...")
+                print(f"[sync] 启动深度联网学习，预计耗时 {sync_seconds} 秒，种子={len(seed_topics)} 个...")
             else:
-                print(f"[sync] 启动深度联网学习，预计耗时 {args.startup_sync_seconds} 秒，未提供种子：将自动全局探索。")
-            stats = assistant.startup_deep_sync(args.startup_sync_seconds, seed_topics=seed_topics)
+                print(f"[sync] 启动深度联网学习，预计耗时 {sync_seconds} 秒，未提供种子：将自动全局探索。")
+            stats = assistant.startup_deep_sync(sync_seconds, seed_topics=seed_topics)
             print(
                 f"[sync] 完成: learned={stats['learned']}, refreshed_existing={stats.get('refreshed_existing', 0)}, "
                 f"tried={stats['tried']}, expanded_from_cache={stats.get('expanded_from_cache', 0)}, "

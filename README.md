@@ -142,6 +142,19 @@ python main.py --web-learn --startup-sync-seconds 1800
 
 > 注意：严格意义上“全网、无限平台、无限时间”在工程上不可行。当前实现是“多源+扩展+可长时间运行”的可控方案。
 
+
+### 3.8 一键 AI 全域思考学习（30000 秒）
+
+如果你要它重点学习“AI 的说话方式、思考逻辑、推理流程”等大范围主题：
+
+```bash
+python main.py --ai-all-sync
+```
+
+- 该模式会自动开启联网学习（等价于开启 `--web-learn`）。
+- 默认深度学习时长是 `30000` 秒（可再叠加 `--startup-sync-seconds` 覆盖）。
+- 会自动注入 AI 相关种子主题（思维链、RAG、Agent、提示工程、对齐等），无需手动写主题。
+
 ### 3.4 常见问题（你这种情况）
 
 - Windows 下用 `run.bat` 启动默认会带 `--web-learn`，会保持联网学习模式。
@@ -176,6 +189,7 @@ python main.py --web-learn --startup-sync-seconds 1800
 - 开启联网学习：`python main.py --web-learn`（然后输入：`学习 人工智能`）
 - 稳定性自检：`python main.py --doctor`
 - 启动深度联网学习：`python main.py --web-learn --startup-sync-seconds 1800`
+- 一键AI全域学习30000秒：`python main.py --ai-all-sync`
 
 ---
 
@@ -192,6 +206,8 @@ python main.py --web-learn --startup-sync-seconds 1800
 ├── train.py
 ├── run.sh
 ├── run.bat
+├── run_ai_all.sh
+├── run_ai_all.bat
 └── README.md
 ```
 
