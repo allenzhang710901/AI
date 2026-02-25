@@ -1,5 +1,5 @@
 """A tiny from-scratch AI assistant package."""
 
-from .model import SimpleChineseAIAssistant
+from .model import NaiveBayesIntentClassifier, SimpleChineseAIAssistant
 
-__all__ = ["SimpleChineseAIAssistant"]
+__all__ = ["NaiveBayesIntentClassifier", "SimpleChineseAIAssistant"]

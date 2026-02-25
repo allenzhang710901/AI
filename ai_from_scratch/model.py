@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 from .data import TRAINING_DATA
@@ -62,6 +64,35 @@ class NaiveBayesIntentClassifier:
 
         self.is_fitted = True
 
+    def to_dict(self) -> Dict[str, object]:
+        if not self.is_fitted:
+            raise RuntimeError("Model not trained. Call fit first.")
+        return {
+            "intent_priors": self.intent_priors,
+            "token_counts": {intent: dict(counter) for intent, counter in self.token_counts.items()},
+            "total_tokens": self.total_tokens,
+            "vocab": sorted(self.vocab),
+        }
+
+    def save(self, path: str | Path) -> None:
+        data = self.to_dict()
+        Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "NaiveBayesIntentClassifier":
+        model = cls()
+        model.intent_priors = {k: float(v) for k, v in dict(data["intent_priors"]).items()}
+        model.token_counts = {k: Counter(v) for k, v in dict(data["token_counts"]).items()}
+        model.total_tokens = {k: int(v) for k, v in dict(data["total_tokens"]).items()}
+        model.vocab = set(data["vocab"])
+        model.is_fitted = True
+        return model
+
+    @classmethod
+    def load(cls, path: str | Path) -> "NaiveBayesIntentClassifier":
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls.from_dict(data)
+
     def predict(self, text: str) -> Prediction:
         if not self.is_fitted:
             raise RuntimeError("Model not trained. Call fit first.")
@@ -99,10 +130,16 @@ class NaiveBayesIntentClassifier:
 class SimpleChineseAIAssistant:
     """Assistant with hybrid intent routing + Naive Bayes fallback."""
 
-    def __init__(self) -> None:
-        self.classifier = NaiveBayesIntentClassifier()
-        self.classifier.fit(TRAINING_DATA)
+    def __init__(self, classifier: NaiveBayesIntentClassifier | None = None) -> None:
+        self.classifier = classifier or NaiveBayesIntentClassifier()
+        if not self.classifier.is_fitted:
+            self.classifier.fit(TRAINING_DATA)
         self.last_intent: str | None = None
+
+    @classmethod
+    def from_model_file(cls, model_path: str | Path) -> "SimpleChineseAIAssistant":
+        classifier = NaiveBayesIntentClassifier.load(model_path)
+        return cls(classifier=classifier)
 
     @staticmethod
     def _safe_eval_expression(text: str) -> str | None:

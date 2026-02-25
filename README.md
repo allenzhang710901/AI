@@ -1,10 +1,10 @@
-# 从 0 开始的 AI：一个更“像样”的中文命令行助手
+# 从 0 开始的 AI：本地中文命令行助手（可训练）
 
-这个项目是一个**纯本地、零依赖云 API** 的 AI 入门示例，重点是“能跑”之外也尽量“更智能”。
+这个项目是一个**纯本地、零依赖云 API** 的 AI 入门示例。
 
-- 使用朴素贝叶斯做基础意图识别。
-- 增加关键词路由与相似度兜底，降低误判。
-- 在命令行里直接对话，支持 demo 与单次提问。
+- 用朴素贝叶斯做意图分类。
+- 支持关键词路由 + 相似度兜底。
+- 支持你自己准备数据进行训练并保存模型。
 
 ---
 
@@ -12,36 +12,68 @@
 
 - Python 3.9+
 
-无需额外第三方依赖。
-
 ---
 
-## 2. 最快运行
+## 2. 快速运行
 
 ```bash
 python main.py --demo
+python main.py --ask "18*7等于多少"
 ```
 
-也可以：
+---
+
+## 3. 我如何训练他（重点）
+
+### 3.1 使用内置数据训练
 
 ```bash
-python main.py --ask "18*7等于多少"
-python -m ai_from_scratch --ask "推荐一本书"
-./run.sh --ask "你好"
+python train.py --out model.json
+```
+
+训练完成后使用：
+
+```bash
+python main.py --model model.json --ask "你好"
+```
+
+### 3.2 用你自己的数据训练
+
+先新建一个 JSON 文件，比如 `my_data.json`：
+
+```json
+{
+  "greeting": ["你好", "在吗", "哈喽"],
+  "math": ["帮我算一下", "18*7等于多少", "计算这个表达式"],
+  "recommend": ["推荐一本书", "我该学什么", "给我建议"]
+}
+```
+
+然后训练：
+
+```bash
+python train.py --data my_data.json --out my_model.json
+```
+
+最后加载你的模型：
+
+```bash
+python main.py --model my_model.json
 ```
 
 ---
 
-## 3. 现在“更智能”的点
+## 4. 命令速查
 
-1. **混合路由**：不是只看朴素贝叶斯，还会看关键词命中。
-2. **相似度兜底**：对用户句子与训练样本做相似度匹配，减少离散输入误判。
-3. **上下文记忆**：当置信度很低时，会适度参考上一轮意图。
-4. **更自然回复**：问候、计算、天气、推荐场景回复更具体。
+- 交互模式：`python main.py`
+- 单次提问：`python main.py --ask "你的问题"`
+- 演示模式：`python main.py --demo`
+- 模型训练：`python train.py --data my_data.json --out my_model.json`
+- 加载模型：`python main.py --model my_model.json --ask "你好"`
 
 ---
 
-## 4. 项目结构
+## 5. 项目结构
 
 ```text
 .
@@ -51,6 +83,7 @@ python -m ai_from_scratch --ask "推荐一本书"
 │   ├── data.py
 │   └── model.py
 ├── main.py
+├── train.py
 ├── run.sh
 ├── run.bat
 └── README.md

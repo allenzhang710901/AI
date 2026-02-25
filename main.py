@@ -4,6 +4,7 @@ Usage:
 - Interactive mode: python main.py
 - One-shot mode:    python main.py --ask "18*7等于多少"
 - Demo mode:        python main.py --demo
+- Load model:       python main.py --model model.json --ask "你好"
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="从 0 开始 AI 助手")
     parser.add_argument("--ask", type=str, help="单次提问后直接返回结果")
     parser.add_argument("--demo", action="store_true", help="运行内置示例")
+    parser.add_argument("--model", type=str, default="", help="可选：加载 train.py 训练出的模型文件")
     return parser
 
 
@@ -55,9 +57,15 @@ def run_demo(assistant: SimpleChineseAIAssistant) -> None:
         print("-" * 40)
 
 
+def build_assistant(model_path: str) -> SimpleChineseAIAssistant:
+    if model_path:
+        return SimpleChineseAIAssistant.from_model_file(model_path)
+    return SimpleChineseAIAssistant()
+
+
 def main() -> None:
     args = build_parser().parse_args()
-    assistant = SimpleChineseAIAssistant()
+    assistant = build_assistant(args.model)
 
     if args.demo:
         run_demo(assistant)
