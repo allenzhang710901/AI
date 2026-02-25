@@ -32,6 +32,7 @@ WEB_LOOKUP_CONFIDENCE_THRESHOLD = 0.8
 THINKING_CUE_WORDS = ["思路", "步骤", "方法", "先", "然后", "最后", "框架", "拆解", "验证"]
 REPLICATE_CUE_WORDS = ["复刻", "照着", "按这个思路", "按这个逻辑", "模仿", "套用"]
 THINK_REQUEST_CUES = ["思考", "分析", "为什么", "怎么办", "怎么做", "规划", "方案", "决策"]
+CAPABILITY_GAP_CUES = ["跟你一样聪明", "几乎一样聪明", "更聪明", "太傻", "死板"]
 
 
 @dataclass
@@ -157,6 +158,8 @@ class SimpleChineseAIAssistant:
         if not self.classifier.is_fitted:
             self._refit_with_learned_data()
         self.last_intent: str | None = None
+        self.last_user_text: str = ""
+        self.user_name: str = ""
         self.new_samples_since_save = 0
 
     @classmethod
@@ -452,6 +455,11 @@ class SimpleChineseAIAssistant:
         return any(c in lowered for c in THINK_REQUEST_CUES)
 
     @staticmethod
+    def _is_capability_gap_request(text: str) -> bool:
+        lowered = text.lower().replace(" ", "")
+        return any(c in lowered for c in CAPABILITY_GAP_CUES)
+
+    @staticmethod
     def _extract_goal(text: str) -> str:
         cleaned = text.strip()
         cleaned = re.sub(r"^(请|请你|帮我|麻烦你|我想|我需要)", "", cleaned)
@@ -459,20 +467,58 @@ class SimpleChineseAIAssistant:
         cleaned = cleaned.strip(" ，。！？,.!?")
         return cleaned or "当前问题"
 
+    def _extract_user_name(self, text: str) -> None:
+        m = re.search(r"我是\s*([A-Za-z0-9_一-鿿]{2,20})", text)
+        if not m:
+            return
+        name = m.group(1).strip()
+        if name:
+            self.user_name = name
+
+    def _propose_two_options(self, goal: str) -> tuple[str, str]:
+        if any(k in goal for k in ["学", "学习", "路线", "入门", "AI", "ai"]):
+            return (
+                "方案A（稳）：先补基础（Python/数学），再做2个小项目，最后上模型实战。",
+                "方案B（快）：直接做一个小助手项目，边做边补短板，2周一迭代。",
+            )
+        if any(k in goal for k in ["产品", "项目", "开发", "写", "代码"]):
+            return (
+                "方案A（质量优先）：先定义需求与验收标准，再分模块开发。",
+                "方案B（速度优先）：先做最小可用版本（MVP），再按反馈迭代。",
+            )
+        return (
+            "方案A（保守）：先拆小目标，优先解决确定性最高的部分。",
+            "方案B（激进）：先做最关键一步验证可行性，再补全细节。",
+        )
+
     def _build_thinking_response(self, text: str) -> str:
         goal = self._extract_goal(text)
         reasoning_hint = self._reasoning_hint_for_query(text)
+        plan_a, plan_b = self._propose_two_options(goal)
+        prefix = f"{self.user_name}，" if self.user_name else ""
         lines = [
-            "我不只给结论，我先把思考过程展开：",
+            f"{prefix}我不只给结论，我先把思考过程展开：",
             f"1) 目标定义：先明确“{goal}”的结果标准。",
             "2) 关键约束：时间/能力/资源分别有什么限制。",
-            "3) 方案对比：至少给两个可执行方案，并说明取舍。",
+            f"3) 方案对比：{plan_a}",
+            f"   - {plan_b}",
             "4) 执行与复盘：先做最小一步，观察结果后再调整。",
         ]
         if reasoning_hint:
             lines.append(reasoning_hint)
         lines.append("如果你愿意，我可以继续把这题拆成 3~5 条你今天就能做的动作。")
         return "\n".join(lines)
+
+    def _capability_upgrade_answer(self) -> str:
+        return (
+            "你这个目标是对的：想接近更强模型，核心不是一句话，而是“能力栈升级”。\n"
+            "我可以按这条路线让它明显变聪明：\n"
+            "1) 检索升级：接入更稳定多源搜索与更强重排。\n"
+            "2) 记忆升级：长期记住你的偏好、项目、历史决策。\n"
+            "3) 推理升级：每次回答都走‘目标-约束-方案-验证’。\n"
+            "4) 评估升级：加自动测试题，持续打分迭代。\n"
+            "你现在就可以让我先从第3步开始，先把你当前目标拆成可执行计划。"
+        )
 
     def _replicate_with_reasoning(self, text: str) -> str:
         base = re.sub(r"(复刻|照着|按这个思路|按这个逻辑|模仿|套用)", "", text, flags=re.IGNORECASE).strip(" ：:，,。")
@@ -538,6 +584,12 @@ class SimpleChineseAIAssistant:
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
         thought = self._think_before_answer(user_text)
         normalized_text = thought["normalized"]
+
+        self.last_user_text = normalized_text
+        self._extract_user_name(normalized_text)
+
+        if self._is_capability_gap_request(normalized_text):
+            return self._capability_upgrade_answer(), Prediction(intent="recommend", confidence=0.92)
 
         compare_answer = self._try_compare_entities_question(normalized_text)
         if compare_answer:
