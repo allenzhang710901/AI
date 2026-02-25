@@ -330,7 +330,7 @@ class SimpleChineseAIAssistant:
         if score < 0.7:
             return None
         if missing:
-            return f"我知道“{topic}”的基础信息，但你还提到了 {', '.join(missing[:3])}，这部分我还没学全。"
+            return f"我知道“{topic}”的基础信息，但你提到的关键词覆盖还不够（缺少: {', '.join(missing[:3])}）。你可以让我继续联网深挖。"
         return f"我之前上网学过“{topic}”：{summary}"
 
     @staticmethod
@@ -338,6 +338,38 @@ class SimpleChineseAIAssistant:
         patterns = ["我是谁", "我叫什么", "我算什么", "我是什么"]
         lowered = text.lower().replace(" ", "")
         return any(p in lowered for p in patterns)
+
+    @staticmethod
+    def _is_non_topic_prompt(text: str) -> bool:
+        lowered = text.strip().lower().replace(" ", "")
+        prompts = {"你去查啊", "你去搜啊", "去查", "去搜", "帮我查", "查一下"}
+        return lowered in prompts
+
+    @staticmethod
+    def _canonical_entity(text: str) -> str:
+        lowered = text.lower()
+        alias = {
+            "honor of king": "honor of kings",
+            "honor of kings": "honor of kings",
+            "王者荣耀": "honor of kings",
+            "arena of valor": "honor of kings",
+            "我的世界": "minecraft",
+            "minecraft": "minecraft",
+        }
+        for k, v in alias.items():
+            if k in lowered or k in text:
+                return v
+        return ""
+
+    def _try_compare_entities_question(self, text: str) -> str | None:
+        lowered = text.lower()
+        cues = ["same as", "一样吗", "是不是", "是否是", "同一个"]
+        if not any(c in lowered for c in cues):
+            return None
+        canonical = self._canonical_entity(text)
+        if canonical == "honor of kings" and ("王者荣耀" in text or "honor" in lowered):
+            return "是的，Honor of Kings 基本就是《王者荣耀》的国际英文名/对应版本体系。"
+        return None
 
     @staticmethod
     def _extract_knowledge_topic(text: str) -> str:
@@ -365,6 +397,8 @@ class SimpleChineseAIAssistant:
             return "这个问题更像是在表达自我困惑，我可以陪你梳理想法；也可以问我具体知识问题。", True
         if self._identity_like_text(text):
             return None, False
+        if self._is_non_topic_prompt(text):
+            return "你可以直接说完整主题，例如：'minecraft mods 是什么' 或 '红楼梦主要人物'。", True
 
         topic = self._extract_knowledge_topic(text)
         if len(topic) < 2 or self._is_low_signal_input(topic):
@@ -373,7 +407,7 @@ class SimpleChineseAIAssistant:
         best = self.web_knowledge.find_best_relevant(topic)
         if best:
             matched_topic, summary, score, missing = best
-            if score >= 0.75 and not missing:
+            if score >= 0.75 and len(missing) <= 1:
                 return f"我在线知识库里有相关内容：{summary}", True
 
         ok, msg = self.web_knowledge.learn_topic(topic)
@@ -388,6 +422,10 @@ class SimpleChineseAIAssistant:
 
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
         normalized_text = self._normalize_text(user_text)
+
+        compare_answer = self._try_compare_entities_question(normalized_text)
+        if compare_answer:
+            return compare_answer, Prediction(intent="recommend", confidence=0.9)
 
         learn_topic = self._parse_learn_command(normalized_text)
         if learn_topic is not None:

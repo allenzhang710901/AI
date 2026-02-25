@@ -10,8 +10,8 @@ from urllib import error, parse, request
 
 WIKI_SUMMARY_API = "https://zh.wikipedia.org/api/rest_v1/page/summary/{}"
 DUCKDUCKGO_API = "https://api.duckduckgo.com/?{}"
-TOKEN_RE = re.compile(r"[a-zA-Z]+|\d+")
-STOPWORDS = {"是", "啥", "什", "么", "有", "哪", "些", "一", "下", "介", "绍", "资", "料", "吗", "呢", "的"}
+TOKEN_RE = re.compile(r"[a-zA-Z]+|\d+|[\u4e00-\u9fff]{2,}")
+STOPWORDS = {"是", "啥", "什么", "有哪些", "有啥", "一下", "介绍", "资料", "吗", "呢", "的"}
 
 
 def _normalize_topic(topic: str) -> str:
@@ -141,9 +141,7 @@ class WebKnowledgeBase:
     def _tokens(text: str) -> set[str]:
         lowered = text.lower()
         tokens = {t for t in TOKEN_RE.findall(lowered) if t.strip()}
-        chinese_chars = {ch for ch in lowered if "一" <= ch <= "鿿"}
-        all_tokens = tokens.union(chinese_chars)
-        return {t for t in all_tokens if t not in STOPWORDS and len(t) >= 1}
+        return {t for t in tokens if t not in STOPWORDS and len(t) >= 2}
 
     def find_best_relevant(self, query: str) -> Tuple[str, str, float, list[str]] | None:
         query_tokens = self._tokens(query)
