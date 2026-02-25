@@ -35,6 +35,12 @@ THINKING_CUE_WORDS = ["思路", "步骤", "方法", "先", "然后", "最后", "
 REPLICATE_CUE_WORDS = ["复刻", "照着", "按这个思路", "按这个逻辑", "模仿", "套用"]
 THINK_REQUEST_CUES = ["思考", "分析", "为什么", "怎么办", "怎么做", "规划", "方案", "决策"]
 CAPABILITY_GAP_CUES = ["跟你一样聪明", "几乎一样聪明", "更聪明", "太傻", "死板"]
+EMOTION_CUES = {
+    "stressed": ["焦虑", "压力", "崩溃", "烦", "累", "慌", "难受", "迷茫"],
+    "sad": ["难过", "伤心", "失落", "痛苦", "低落", "孤独"],
+    "angry": ["生气", "愤怒", "火大", "烦死", "讨厌", "受不了"],
+    "positive": ["开心", "高兴", "太好了", "有希望", "顺利", "感谢"],
+}
 
 
 @dataclass
@@ -532,9 +538,8 @@ class SimpleChineseAIAssistant:
         goal = self._extract_goal(text)
         reasoning_hint = self._reasoning_hint_for_query(text)
         plan_a, plan_b = self._propose_two_options(goal)
-        prefix = f"{self.user_name}，" if self.user_name else ""
         lines = [
-            f"{prefix}我不只给结论，我先把思考过程展开：",
+            self._emotion_prefix(text),
             f"1) 目标定义：先明确“{goal}”的结果标准。",
             "2) 关键约束：时间/能力/资源分别有什么限制。",
             f"3) 方案对比：{plan_a}",
@@ -544,6 +549,7 @@ class SimpleChineseAIAssistant:
         if reasoning_hint:
             lines.append(reasoning_hint)
         lines.append("如果你愿意，我可以继续把这题拆成 3~5 条你今天就能做的动作。")
+        lines.append(self._follow_up_question(text))
         return "\n".join(lines)
 
     def _capability_upgrade_answer(self) -> str:
@@ -556,6 +562,43 @@ class SimpleChineseAIAssistant:
             "4) 评估升级：加自动测试题，持续打分迭代。\n"
             "你现在就可以让我先从第3步开始，先把你当前目标拆成可执行计划。"
         )
+
+    @staticmethod
+    def _detect_emotion(text: str) -> str | None:
+        lowered = text.lower()
+        for mood, words in EMOTION_CUES.items():
+            if any(w in lowered for w in words):
+                return mood
+        return None
+
+    def _emotion_prefix(self, text: str) -> str:
+        mood = self._detect_emotion(text)
+        prefix_name = f"{self.user_name}，" if self.user_name else ""
+        if mood == "stressed":
+            return f"{prefix_name}我听出来你现在压力很大，我们先把问题压缩到可执行的一步。"
+        if mood == "sad":
+            return f"{prefix_name}我在，你不是一个人。我们先把眼前最小可控的一步找出来。"
+        if mood == "angry":
+            return f"{prefix_name}我理解你现在很烦，我们先不空谈，直接做可落地方案。"
+        if mood == "positive":
+            return f"{prefix_name}你这个状态很好，我们可以趁势把计划做得更扎实。"
+        return f"{prefix_name}我不只给结论，我先把思考过程展开："
+
+    def _follow_up_question(self, text: str) -> str:
+        goal = self._extract_goal(text)
+        if any(k in goal for k in ["学习", "学", "路线", "入门", "AI", "ai"]):
+            return "你可以补充：你每天可投入多少小时、你更偏工程还是理论？"
+        if any(k in goal for k in ["产品", "项目", "开发", "上线"]):
+            return "你可以补充：目标用户是谁、你希望几周内上线第一版？"
+        return "你可以补充：你的时间上限、最想优先解决的结果是什么？"
+
+    def _emotion_coaching_response(self, text: str) -> str | None:
+        mood = self._detect_emotion(text)
+        if not mood:
+            return None
+        if mood == "positive":
+            return "听到这个好消息真替你开心！要不要我们趁热打铁，把下一步目标拆成今天可执行的 3 步？"
+        return self._build_thinking_response(text)
 
     def _replicate_with_reasoning(self, text: str) -> str:
         base = re.sub(r"(复刻|照着|按这个思路|按这个逻辑|模仿|套用)", "", text, flags=re.IGNORECASE).strip(" ：:，,。")
@@ -692,6 +735,12 @@ class SimpleChineseAIAssistant:
         if memorized:
             return memorized, Prediction(intent="recommend", confidence=0.95)
 
+        emotion_answer = self._emotion_coaching_response(normalized_text)
+        if emotion_answer:
+            pred = Prediction(intent="recommend", confidence=0.86)
+            self._remember_response(normalized_text, emotion_answer, pred)
+            return emotion_answer, pred
+
         if self._is_capability_gap_request(normalized_text):
             answer = self._capability_upgrade_answer()
             pred = Prediction(intent="recommend", confidence=0.92)
@@ -799,13 +848,13 @@ class SimpleChineseAIAssistant:
             return answer, prediction
 
         if self._identity_like_text(normalized_text):
-            answer = "我理解你在表达自己。你也可以告诉我你现在最想解决的问题，我会尽量帮你。"
+            answer = "我理解你在表达自己。你的感受是重要的。你可以告诉我你现在最想解决的一件事，我会按步骤陪你推进。"
             self._remember_response(normalized_text, answer, prediction)
             return answer, prediction
 
         reasoning_hint = self._reasoning_hint_for_query(normalized_text)
         if reasoning_hint:
-            return f"这个问题我还不够确定，但我可以按这个思路帮你：{reasoning_hint} 你可以再补一个具体目标。", prediction
+            return f"我先不敷衍给结论。这个问题我还不够确定，但我可以按这个思路帮你：{reasoning_hint} 你可以再补一个具体目标。", prediction
 
         if len(normalized_text.strip()) >= 4:
             answer = self._build_thinking_response(normalized_text)
