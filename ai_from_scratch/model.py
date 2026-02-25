@@ -323,10 +323,14 @@ class SimpleChineseAIAssistant:
         return None
 
     def _try_answer_with_web_knowledge(self, text: str) -> str | None:
-        found = self.web_knowledge.find_relevant(text)
-        if not found:
+        best = self.web_knowledge.find_best_relevant(text)
+        if not best:
             return None
-        topic, summary = found
+        topic, summary, score, missing = best
+        if score < 0.7:
+            return None
+        if missing:
+            return f"我知道“{topic}”的基础信息，但你还提到了 {', '.join(missing[:3])}，这部分我还没学全。"
         return f"我之前上网学过“{topic}”：{summary}"
 
     @staticmethod
@@ -339,17 +343,17 @@ class SimpleChineseAIAssistant:
     def _extract_knowledge_topic(text: str) -> str:
         alias_map = {
             "我的世界": "minecraft",
-            "mc": "minecraft",
+            " mc ": " minecraft ",
             "王者荣耀": "王者荣耀",
         }
-        stripped = text.strip()
+        stripped = f" {text.strip()} "
+        lowered = stripped.lower()
         for k, v in alias_map.items():
-            if k in stripped.lower() or k in stripped:
-                return v
+            lowered = lowered.replace(k, f" {v} ")
 
-        topic = re.sub(r"[，。！？,.!?]", " ", stripped)
+        topic = re.sub(r"[，。！？,.!?]", " ", lowered.strip())
         topic = re.sub(r"^(请问|你知道|能说下|介绍下|告诉我)", "", topic).strip()
-        topic = re.sub(r"(是啥|是什么|啥意思|是什么东西|怎么样|资料|介绍)$", "", topic).strip()
+        topic = re.sub(r"(是啥|是什么|啥意思|是什么东西|怎么样|资料|介绍|有哪些)$", "", topic).strip()
         return re.sub(r"\s+", " ", topic)
 
     def _try_web_lookup_for_query(self, text: str, prediction: Prediction) -> Tuple[str | None, bool]:
@@ -366,14 +370,15 @@ class SimpleChineseAIAssistant:
         if len(topic) < 2 or self._is_low_signal_input(topic):
             return None, False
 
-        found = self.web_knowledge.find_relevant(topic)
-        if found:
-            _, summary = found
-            return f"我在线知识库里有相关内容：{summary}", True
+        best = self.web_knowledge.find_best_relevant(topic)
+        if best:
+            matched_topic, summary, score, missing = best
+            if score >= 0.75 and not missing:
+                return f"我在线知识库里有相关内容：{summary}", True
 
         ok, msg = self.web_knowledge.learn_topic(topic)
         if not ok:
-            return f"我尝试联网查“{topic}”但暂时没结果。你可以换个更具体关键词（例如英文名）。", True
+            return f"我尝试联网查“{topic}”但暂时没结果。你可以补充更多关键词（例如版本/玩法/平台）。", True
 
         learned = self.web_knowledge.find_relevant(topic)
         if not learned:

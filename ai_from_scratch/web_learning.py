@@ -10,6 +10,8 @@ from urllib import error, parse, request
 
 WIKI_SUMMARY_API = "https://zh.wikipedia.org/api/rest_v1/page/summary/{}"
 DUCKDUCKGO_API = "https://api.duckduckgo.com/?{}"
+TOKEN_RE = re.compile(r"[a-zA-Z]+|\d+")
+STOPWORDS = {"是", "啥", "什", "么", "有", "哪", "些", "一", "下", "介", "绍", "资", "料", "吗", "呢", "的"}
 
 
 def _normalize_topic(topic: str) -> str:
@@ -135,9 +137,39 @@ class WebKnowledgeBase:
             return False, "我学到了内容，但本地保存失败（可能是目录写权限问题）。"
         return True, f"我刚刚上网学习了“{topic}”。"
 
-    def find_relevant(self, query: str) -> Tuple[str, str] | None:
-        q = query.lower()
+    @staticmethod
+    def _tokens(text: str) -> set[str]:
+        lowered = text.lower()
+        tokens = {t for t in TOKEN_RE.findall(lowered) if t.strip()}
+        chinese_chars = {ch for ch in lowered if "一" <= ch <= "鿿"}
+        all_tokens = tokens.union(chinese_chars)
+        return {t for t in all_tokens if t not in STOPWORDS and len(t) >= 1}
+
+    def find_best_relevant(self, query: str) -> Tuple[str, str, float, list[str]] | None:
+        query_tokens = self._tokens(query)
+        if not query_tokens:
+            return None
+
+        best: Tuple[str, str, float, list[str]] | None = None
         for topic, item in self.data.items():
-            if topic.lower() in q:
-                return topic, item["summary"]
-        return None
+            summary = item["summary"]
+            target_tokens = self._tokens(topic + " " + summary)
+            if not target_tokens:
+                continue
+            matched = sorted([t for t in query_tokens if t in target_tokens])
+            score = len(matched) / max(len(query_tokens), 1)
+            missing = sorted([t for t in query_tokens if t not in target_tokens])
+            candidate = (topic, summary, score, missing)
+            if best is None or score > best[2]:
+                best = candidate
+
+        return best
+
+    def find_relevant(self, query: str) -> Tuple[str, str] | None:
+        best = self.find_best_relevant(query)
+        if not best:
+            return None
+        topic, summary, score, _ = best
+        if score < 0.5:
+            return None
+        return topic, summary
