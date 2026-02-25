@@ -330,33 +330,56 @@ class SimpleChineseAIAssistant:
         return f"我之前上网学过“{topic}”：{summary}"
 
     @staticmethod
-    def _guess_web_topic(text: str) -> str:
-        topic = re.sub(r"[，。！？,.!?]", " ", text).strip()
+    def _is_personal_identity_question(text: str) -> bool:
+        patterns = ["我是谁", "我叫什么", "我算什么", "我是什么"]
+        lowered = text.lower().replace(" ", "")
+        return any(p in lowered for p in patterns)
+
+    @staticmethod
+    def _extract_knowledge_topic(text: str) -> str:
+        alias_map = {
+            "我的世界": "minecraft",
+            "mc": "minecraft",
+            "王者荣耀": "王者荣耀",
+        }
+        stripped = text.strip()
+        for k, v in alias_map.items():
+            if k in stripped.lower() or k in stripped:
+                return v
+
+        topic = re.sub(r"[，。！？,.!?]", " ", stripped)
+        topic = re.sub(r"^(请问|你知道|能说下|介绍下|告诉我)", "", topic).strip()
+        topic = re.sub(r"(是啥|是什么|啥意思|是什么东西|怎么样|资料|介绍)$", "", topic).strip()
         return re.sub(r"\s+", " ", topic)
 
-    def _try_web_lookup_for_query(self, text: str, prediction: Prediction) -> str | None:
+    def _try_web_lookup_for_query(self, text: str, prediction: Prediction) -> Tuple[str | None, bool]:
         if not self.web_learning_enabled:
-            return None
+            return None, False
         if prediction.confidence >= WEB_LOOKUP_CONFIDENCE_THRESHOLD:
-            return None
-        topic = self._guess_web_topic(text)
-        if len(topic) < 2 or self._is_low_signal_input(topic):
-            return None
+            return None, False
+        if self._is_personal_identity_question(text):
+            return "这个问题更像是在表达自我困惑，我可以陪你梳理想法；也可以问我具体知识问题。", True
+        if self._identity_like_text(text):
+            return None, False
 
-        # 先看缓存
+        topic = self._extract_knowledge_topic(text)
+        if len(topic) < 2 or self._is_low_signal_input(topic):
+            return None, False
+
         found = self.web_knowledge.find_relevant(topic)
         if found:
             _, summary = found
-            return f"我在线知识库里有相关内容：{summary}"
+            return f"我在线知识库里有相关内容：{summary}", True
 
-        ok, _ = self.web_knowledge.learn_topic(topic)
+        ok, msg = self.web_knowledge.learn_topic(topic)
         if not ok:
-            return None
+            return f"我尝试联网查“{topic}”但暂时没结果。你可以换个更具体关键词（例如英文名）。", True
+
         learned = self.web_knowledge.find_relevant(topic)
         if not learned:
-            return None
+            return msg, True
         _, summary = learned
-        return f"我刚联网查到：{summary}"
+        return f"我刚联网查到：{summary}", True
 
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
         normalized_text = self._normalize_text(user_text)
@@ -379,7 +402,7 @@ class SimpleChineseAIAssistant:
         prediction = self._route_intent(normalized_text, bayes_pred)
         intent = prediction.intent
 
-        web_answer = self._try_web_lookup_for_query(normalized_text, prediction)
+        web_answer, _ = self._try_web_lookup_for_query(normalized_text, prediction)
         if web_answer:
             return web_answer, Prediction(intent="recommend", confidence=0.8)
 
