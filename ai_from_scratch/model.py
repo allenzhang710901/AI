@@ -30,6 +30,7 @@ AUTO_LEARN_MIN_CONFIDENCE = 0.9
 AUTO_SAVE_EVERY = 3
 WEB_LOOKUP_CONFIDENCE_THRESHOLD = 0.8
 THINKING_CUE_WORDS = ["思路", "步骤", "方法", "先", "然后", "最后", "框架", "拆解", "验证"]
+REPLICATE_CUE_WORDS = ["复刻", "照着", "按这个思路", "按这个逻辑", "模仿", "套用"]
 
 
 @dataclass
@@ -433,6 +434,37 @@ class SimpleChineseAIAssistant:
                 return f"我会参考已学到的思考方法：{snippets[0]}。"
         return None
 
+    @staticmethod
+    def _is_reasoning_search_request(text: str) -> bool:
+        lowered = text.lower().replace(" ", "")
+        cues = ["ai的逻辑思考", "ai思考逻辑", "逻辑思考逻辑", "思考框架", "推理逻辑", "思维链路"]
+        return any(c in lowered for c in cues)
+
+    @staticmethod
+    def _is_replicate_request(text: str) -> bool:
+        lowered = text.lower()
+        return any(c in lowered for c in REPLICATE_CUE_WORDS)
+
+    def _replicate_with_reasoning(self, text: str) -> str:
+        base = re.sub(r"(复刻|照着|按这个思路|按这个逻辑|模仿|套用)", "", text, flags=re.IGNORECASE).strip(" ：:，,。")
+        target = base if base else "你的问题"
+
+        hint = self._reasoning_hint_for_query(text)
+        if hint:
+            plan = hint.replace("我会参考已学到的思考方法：", "").strip("。")
+            return (
+                f"可以，我按这个逻辑复刻回答：\n"
+                f"1) 明确目标：先定义“{target}”要解决什么。\n"
+                f"2) 拆解步骤：把问题拆成可执行的小步骤。\n"
+                f"3) 逐步验证：每一步都检查是否贴合目标。\n"
+                f"参考思路：{plan}。"
+            )
+
+        return (
+            "可以复刻，但你需要先让我学到一个明确的思考模板。\n"
+            "你可以先说：学习 AI 思考框架，然后再发：复刻 + 你的问题。"
+        )
+
     def _try_web_lookup_for_query(self, text: str, prediction: Prediction) -> Tuple[str | None, bool]:
         if not self.web_learning_enabled:
             return None, False
@@ -492,6 +524,26 @@ class SimpleChineseAIAssistant:
             ok, msg = self.web_knowledge.learn_topic(learn_topic)
             conf = 1.0 if ok else 0.0
             return msg, Prediction(intent="recommend", confidence=conf)
+
+        if self._is_reasoning_search_request(normalized_text):
+            if not self.web_learning_enabled:
+                return (
+                    "你要的“AI 逻辑思考”可以做，但要先开启联网学习：python main.py --web-learn",
+                    Prediction(intent="unknown", confidence=0.0),
+                )
+            ok, _ = self.web_knowledge.learn_topic("AI 思考框架")
+            if not ok:
+                return (
+                    "我已尝试联网学习 AI 思考逻辑，但这次没拿到稳定结果。你可以再试：学习 AI 思考框架。",
+                    Prediction(intent="recommend", confidence=0.6),
+                )
+            return (
+                "我已联网学习 AI 思考逻辑。你现在可以直接说“复刻 + 你的问题”，我会按学到的思路回答。",
+                Prediction(intent="recommend", confidence=0.9),
+            )
+
+        if self._is_replicate_request(normalized_text):
+            return self._replicate_with_reasoning(normalized_text), Prediction(intent="recommend", confidence=0.88)
 
         remembered = self._try_answer_with_web_knowledge(normalized_text)
         if remembered:
