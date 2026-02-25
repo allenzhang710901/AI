@@ -88,6 +88,27 @@ python main.py --model model.json
 
 ---
 
+
+### 3.5 联网学习（让它自己慢慢增长知识）
+
+你可以开启联网学习模式：
+
+```bash
+python main.py --web-learn
+```
+
+进入对话后，直接下指令：
+
+```text
+学习 人工智能
+学习 量子计算
+```
+
+助手会尝试从公开百科抓取摘要，并保存到本地 `.ai_web_knowledge.json`。
+下次你问相关主题时，它会优先使用已学习到的本地知识回答。
+
+> 注意：联网学习依赖网络可用性与公开站点返回结果。
+
 ### 3.4 常见问题（你这种情况）
 
 - 输入 `1` 这种信息太少的内容，助手会提示你补充问题，而不是乱猜意图。
@@ -106,6 +127,7 @@ python main.py --model model.json
 - 生成模板：`python train.py --init-data my_data.json`
 - 用 JSON 训练：`python train.py --data my_data.json --out my_model.json`
 - 加载模型：`python main.py --model my_model.json --ask "你好"`
+- 开启联网学习：`python main.py --web-learn`（然后输入：`学习 人工智能`）
 
 ---
 
@@ -130,11 +152,11 @@ python main.py --model model.json
 
 ## 6. 能让它自动慢慢变智能吗？
 
-可以。现在默认开启了**自动学习**：
+可以。现在默认开启了**自动学习（本地样本）**，也支持**联网学习（外部知识）**：
 
 - 每次你对话后，若模型对某句判断非常有把握（高置信度），会把该句加入本地学习库。
-- 学习库会保存到项目根目录的 `.ai_learned_data.json`。
-- 下次启动时会自动加载这些历史样本，让识别逐步贴近你的说话习惯。
+- 本地学习库保存到 `.ai_learned_data.json`，会让意图识别更贴近你的习惯。
+- 开启 `--web-learn` 后，你可用“学习 关键词”让它上网抓取知识并保存到 `.ai_web_knowledge.json`。
 
 你可以这样验证：
 

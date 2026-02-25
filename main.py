@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--demo", action="store_true", help="运行内置示例")
     parser.add_argument("--model", type=str, default="", help="可选：加载 train.py 训练出的模型文件")
     parser.add_argument("--no-auto-learn", action="store_true", help="关闭对话过程中的自动学习")
+    parser.add_argument("--web-learn", action="store_true", help="开启联网学习（按“学习 关键词”触发）")
     return parser
 
 
@@ -60,18 +61,19 @@ def run_demo(assistant: SimpleChineseAIAssistant) -> None:
         print("-" * 40)
 
 
-def build_assistant(model_path: str, auto_learn: bool) -> SimpleChineseAIAssistant:
+def build_assistant(model_path: str, auto_learn: bool, web_learn: bool) -> SimpleChineseAIAssistant:
     if model_path:
         # Load trained model weights but keep auto-learning memory file behavior.
         assistant = SimpleChineseAIAssistant.from_model_file(model_path)
         assistant.auto_learn = auto_learn
+        assistant.web_learning_enabled = web_learn
         return assistant
-    return SimpleChineseAIAssistant(auto_learn=auto_learn)
+    return SimpleChineseAIAssistant(auto_learn=auto_learn, web_learning_enabled=web_learn)
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn)
+    assistant = build_assistant(args.model, auto_learn=not args.no_auto_learn, web_learn=args.web_learn)
 
     if args.demo:
         run_demo(assistant)

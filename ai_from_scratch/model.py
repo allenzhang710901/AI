@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 from .data import TRAINING_DATA
+from .web_learning import WebKnowledgeBase
 
 TOKEN_RE = re.compile(r"[a-zA-Z]+|\d+|[+\-*/()]")
 KEYWORD_HINTS = {
@@ -141,9 +142,12 @@ class SimpleChineseAIAssistant:
         classifier: NaiveBayesIntentClassifier | None = None,
         learned_data_path: str | Path = ".ai_learned_data.json",
         auto_learn: bool = True,
+        web_learning_enabled: bool = False,
     ) -> None:
         self.learned_data_path = Path(learned_data_path)
         self.auto_learn = auto_learn
+        self.web_learning_enabled = web_learning_enabled
+        self.web_knowledge = WebKnowledgeBase()
         self.learned_data = self._load_learned_data()
         self.classifier = classifier or NaiveBayesIntentClassifier()
         if not self.classifier.is_fitted:
@@ -304,8 +308,39 @@ class SimpleChineseAIAssistant:
             self.persist_learned_data()
             self.new_samples_since_save = 0
 
+    @staticmethod
+    def _parse_learn_command(text: str) -> str | None:
+        raw = text.strip()
+        prefixes = ["学习 ", "上网学习 ", "联网学习 ", "learn "]
+        for prefix in prefixes:
+            if raw.lower().startswith(prefix.lower()):
+                return raw[len(prefix):].strip()
+        return None
+
+    def _try_answer_with_web_knowledge(self, text: str) -> str | None:
+        found = self.web_knowledge.find_relevant(text)
+        if not found:
+            return None
+        topic, summary = found
+        return f"我之前上网学过“{topic}”：{summary}"
+
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
         normalized_text = self._normalize_text(user_text)
+
+        learn_topic = self._parse_learn_command(normalized_text)
+        if learn_topic is not None:
+            if not self.web_learning_enabled:
+                return (
+                    "当前未开启联网学习。请用 --web-learn 启动后再输入：学习 人工智能。",
+                    Prediction(intent="unknown", confidence=0.0),
+                )
+            ok, msg = self.web_knowledge.learn_topic(learn_topic)
+            conf = 1.0 if ok else 0.0
+            return msg, Prediction(intent="recommend", confidence=conf)
+
+        remembered = self._try_answer_with_web_knowledge(normalized_text)
+        if remembered:
+            return remembered, Prediction(intent="recommend", confidence=0.75)
         bayes_pred = self.classifier.predict(normalized_text)
         prediction = self._route_intent(normalized_text, bayes_pred)
         intent = prediction.intent
