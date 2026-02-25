@@ -136,6 +136,8 @@ python main.py --web-learn --startup-sync-seconds 1800
 
 - `--startup-sync-seconds`：启动时联网学习时长（秒），可设很大。
 - `--seed-topics`：逗号分隔的种子主题（可选）。不填时会自动用内置全局主题池探索，不需要你手动给主题。
+- 启动日志会显示 `learned / refreshed_existing / tried / expanded_from_cache`，你能看到是否真的在持续搜索，而不是秒结束。
+- 深度同步的最大尝试次数会随 `--startup-sync-seconds` 自动放大（默认下限 200），长时运行不会很快触顶停止。
 - Windows 可直接双击 `run.bat`（默认已带 300 秒启动深度学习）。
 
 > 注意：严格意义上“全网、无限平台、无限时间”在工程上不可行。当前实现是“多源+扩展+可长时间运行”的可控方案。

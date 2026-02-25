@@ -193,7 +193,7 @@ class SimpleChineseAIAssistant:
         # If caller doesn't provide seeds, use WebKnowledgeBase defaults so we still crawl
         # new topics instead of only replaying existing cache keys.
         topics = seed_topics or []
-        stats = self.web_knowledge.deep_sync(seed_topics=topics, time_budget_s=seconds)
+        stats = self.web_knowledge.deep_sync(seed_topics=topics, time_budget_s=seconds, max_topics=max(200, seconds * 5))
         return stats
 
     def _merged_training_data(self) -> Dict[str, List[str]]:

@@ -121,8 +121,9 @@ def main() -> None:
                 print(f"[sync] 启动深度联网学习，预计耗时 {args.startup_sync_seconds} 秒，未提供种子：将自动全局探索。")
             stats = assistant.startup_deep_sync(args.startup_sync_seconds, seed_topics=seed_topics)
             print(
-                f"[sync] 完成: learned={stats['learned']}, tried={stats['tried']}, "
-                f"expanded_from_cache={stats.get('expanded_from_cache', 0)}, elapsed={stats['elapsed_s']}s"
+                f"[sync] 完成: learned={stats['learned']}, refreshed_existing={stats.get('refreshed_existing', 0)}, "
+                f"tried={stats['tried']}, expanded_from_cache={stats.get('expanded_from_cache', 0)}, "
+                f"elapsed={stats['elapsed_s']}s"
             )
 
         if args.demo:

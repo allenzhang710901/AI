@@ -15,26 +15,19 @@ DUCKDUCKGO_API = "https://api.duckduckgo.com/?{}"
 TOKEN_RE = re.compile(r"[a-zA-Z]+|\d+|[\u4e00-\u9fff]{2,}")
 STOPWORDS = {"是", "啥", "什么", "有哪些", "有啥", "一下", "介绍", "资料", "吗", "呢", "的"}
 DEFAULT_DEEP_SYNC_SEEDS = [
-    "人工智能",
-    "机器学习",
-    "深度学习",
-    "Python",
-    "数学",
-    "物理学",
-    "化学",
-    "生物学",
-    "历史",
-    "地理",
-    "经济学",
-    "哲学",
-    "编程",
-    "网络安全",
-    "数据库",
-    "操作系统",
-    "Minecraft",
-    "王者荣耀",
-    "英雄联盟",
-    "红楼梦",
+    "人工智能", "机器学习", "深度学习", "大语言模型", "Python", "JavaScript", "数据库", "操作系统",
+    "计算机网络", "网络安全", "算法", "数据结构", "数学", "物理学", "化学", "生物学", "历史", "地理",
+    "经济学", "哲学", "心理学", "教育", "医学", "法律", "摄影", "音乐", "电影", "红楼梦", "西游记",
+    "三国演义", "水浒传", "Minecraft", "王者荣耀", "英雄联盟", "Dota 2", "NBA", "足球", "旅行", "烹饪",
+]
+
+EXPLORE_SUFFIXES = ["是什么", "入门", "教程", "发展史", "应用", "原理", "最佳实践"]
+
+GLOBAL_EXPLORE_TOPICS = [
+    "云计算", "Docker", "Kubernetes", "Linux", "Git", "前端开发", "后端开发", "微服务", "推荐系统", "强化学习",
+    "概率论", "线性代数", "统计学", "区块链", "芯片", "半导体", "新能源", "电动汽车", "机器人", "自动驾驶",
+    "天文学", "地震", "气候变化", "全球变暖", "营养学", "健身", "睡眠", "英语学习", "日语学习", "创业",
+    "产品经理", "UI 设计", "用户体验", "短视频", "直播", "播客", "小说", "科幻", "动漫", "游戏设计",
 ]
 
 
@@ -247,40 +240,65 @@ class WebKnowledgeBase:
             queue = deque(DEFAULT_DEEP_SYNC_SEEDS)
 
         visited: set[str] = set()
-        existing: set[str] = set(k.lower() for k in self.data.keys())
         learned_count = 0
         tried_count = 0
         expanded_from_cache = 0
+        refreshed_existing = 0
+        existing = {k.lower() for k in self.data.keys()}
 
-        while queue and (time.time() - start) < time_budget_s and tried_count < max_topics:
+        while (time.time() - start) < time_budget_s and tried_count < max_topics:
+            # If related-topic expansion gets stuck, proactively keep exploring from a broader pool.
+            if not queue:
+                for fallback in GLOBAL_EXPLORE_TOPICS:
+                    if fallback.lower() not in visited:
+                        queue.append(fallback)
+
+                # If fixed pool is exhausted, synthesize extra topics to keep long-running
+                # startup sync alive for larger time budgets.
+                if not queue:
+                    generated = 0
+                    for base in DEFAULT_DEEP_SYNC_SEEDS + GLOBAL_EXPLORE_TOPICS:
+                        for suffix in EXPLORE_SUFFIXES:
+                            candidate = f"{base} {suffix}"
+                            if candidate.lower() in visited:
+                                continue
+                            queue.append(candidate)
+                            generated += 1
+                            if generated >= 80:
+                                break
+                        if generated >= 80:
+                            break
+
+                if not queue:
+                    break
+
             topic = queue.popleft()
             key = topic.lower()
             if key in visited:
                 continue
             visited.add(key)
-
-            # Even if topic is already cached, still try to expand related topics so startup
-            # deep-sync can continue discovering new knowledge instead of ending immediately.
-            if key in existing:
-                expanded_from_cache += 1
-                for related in discover_related_topics(topic):
-                    rkey = related.lower()
-                    if rkey not in visited:
-                        queue.append(related)
-                continue
-
             tried_count += 1
 
+            already_cached = key in existing
             ok, _ = self.learn_topic(topic)
             if ok:
-                learned_count += 1
-                for related in discover_related_topics(topic):
-                    rkey = related.lower()
-                    if rkey not in visited:
-                        queue.append(related)
+                if already_cached:
+                    refreshed_existing += 1
+                else:
+                    learned_count += 1
+                    existing.add(key)
+
+            related_topics = discover_related_topics(topic)
+            if already_cached:
+                expanded_from_cache += len(related_topics)
+            for related in related_topics:
+                rkey = related.lower()
+                if rkey not in visited:
+                    queue.append(related)
 
         return {
             "learned": learned_count,
+            "refreshed_existing": refreshed_existing,
             "tried": tried_count,
             "expanded_from_cache": expanded_from_cache,
             "remaining_queue": len(queue),
