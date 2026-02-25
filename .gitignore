@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .ai_learned_data.json
 .ai_web_knowledge.json
+
+.ai_response_memory.json

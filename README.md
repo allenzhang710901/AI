@@ -122,7 +122,7 @@ python main.py --web-learn
 权限方面通常只需要：
 
 1. **网络权限**：用于 `--web-learn` 联网抓取摘要（HTTPS）。
-2. **目录写权限**：用于保存 `.ai_learned_data.json` / `.ai_web_knowledge.json`。
+2. **目录写权限**：用于保存 `.ai_learned_data.json` / `.ai_web_knowledge.json` / `.ai_response_memory.json`。
 3. **无需管理员权限**（一般情况）。
 
 
@@ -187,6 +187,7 @@ python main.py --ai-all-sync
 - 用 JSON 训练：`python train.py --data my_data.json --out my_model.json`
 - 加载模型：`python main.py --model my_model.json --ask "你好"`
 - 开启联网学习：`python main.py --web-learn`（然后输入：`学习 人工智能`）
+- 教它固定回答：`学习回答 问题 => 你的答案`（会持久化）
 - 稳定性自检：`python main.py --doctor`
 - 启动深度联网学习：`python main.py --web-learn --startup-sync-seconds 1800`
 - 一键AI全域学习30000秒：`python main.py --ai-all-sync`

@@ -49,7 +49,7 @@ def run_interactive(assistant: SimpleChineseAIAssistant) -> None:
 
         if user_text.lower() in EXIT_WORDS:
             print("AI: 好的，期待下次见面！")
-            assistant.persist_learned_data()
+            assistant.persist_all_memory()
             break
 
         answer, pred = assistant.reply(user_text)
@@ -62,7 +62,7 @@ def run_once(assistant: SimpleChineseAIAssistant, user_text: str) -> None:
     print(f"你: {user_text}")
     print(f"AI: {answer}")
     print(f"(意图: {pred.intent}, 置信度: {pred.confidence:.2f})")
-    assistant.persist_learned_data()
+    assistant.persist_all_memory()
 
 
 def run_demo(assistant: SimpleChineseAIAssistant) -> None:

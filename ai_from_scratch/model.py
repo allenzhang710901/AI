@@ -29,6 +29,8 @@ MAX_NUMBER_DIGITS = 12
 AUTO_LEARN_MIN_CONFIDENCE = 0.9
 AUTO_SAVE_EVERY = 3
 WEB_LOOKUP_CONFIDENCE_THRESHOLD = 0.8
+RESPONSE_MEMORY_MIN_CONFIDENCE = 0.72
+MAX_RESPONSE_MEMORY = 500
 THINKING_CUE_WORDS = ["思路", "步骤", "方法", "先", "然后", "最后", "框架", "拆解", "验证"]
 REPLICATE_CUE_WORDS = ["复刻", "照着", "按这个思路", "按这个逻辑", "模仿", "套用"]
 THINK_REQUEST_CUES = ["思考", "分析", "为什么", "怎么办", "怎么做", "规划", "方案", "决策"]
@@ -148,12 +150,15 @@ class SimpleChineseAIAssistant:
         learned_data_path: str | Path = ".ai_learned_data.json",
         auto_learn: bool = True,
         web_learning_enabled: bool = False,
+        response_memory_path: str | Path = ".ai_response_memory.json",
     ) -> None:
         self.learned_data_path = Path(learned_data_path)
         self.auto_learn = auto_learn
         self.web_learning_enabled = web_learning_enabled
         self.web_knowledge = WebKnowledgeBase()
+        self.response_memory_path = Path(response_memory_path)
         self.learned_data = self._load_learned_data()
+        self.response_memory = self._load_response_memory()
         self.classifier = classifier or NaiveBayesIntentClassifier()
         if not self.classifier.is_fitted:
             self._refit_with_learned_data()
@@ -183,6 +188,21 @@ class SimpleChineseAIAssistant:
                 cleaned[intent] = [x for x in items if isinstance(x, str) and x.strip()]
         return cleaned
 
+    def _load_response_memory(self) -> Dict[str, str]:
+        if not self.response_memory_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.response_memory_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        cleaned: Dict[str, str] = {}
+        for q, a in payload.items():
+            if isinstance(q, str) and isinstance(a, str) and q.strip() and a.strip():
+                cleaned[q.strip()] = a.strip()
+        return cleaned
+
     def persist_learned_data(self) -> bool:
         try:
             self.learned_data_path.write_text(
@@ -191,6 +211,20 @@ class SimpleChineseAIAssistant:
         except OSError:
             return False
         return True
+
+    def persist_response_memory(self) -> bool:
+        try:
+            self.response_memory_path.write_text(
+                json.dumps(self.response_memory, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except OSError:
+            return False
+        return True
+
+    def persist_all_memory(self) -> bool:
+        ok1 = self.persist_learned_data()
+        ok2 = self.persist_response_memory()
+        return ok1 and ok2
 
     def startup_deep_sync(self, seconds: int, seed_topics: list[str] | None = None) -> dict:
         if not self.web_learning_enabled:
@@ -468,7 +502,10 @@ class SimpleChineseAIAssistant:
         return cleaned or "当前问题"
 
     def _extract_user_name(self, text: str) -> None:
-        m = re.search(r"我是\s*([A-Za-z0-9_一-鿿]{2,20})", text)
+        stripped = text.strip()
+        if stripped.startswith("学习回答") or stripped.startswith("记住回答"):
+            return
+        m = re.match(r"^(?:你好[，,\s]*)?我是\s*([A-Za-z0-9_一-鿿]{2,20})", stripped)
         if not m:
             return
         name = m.group(1).strip()
@@ -572,6 +609,62 @@ class SimpleChineseAIAssistant:
         _, summary = learned
         return f"我刚联网查到：{summary}", True
 
+    @staticmethod
+    def _parse_teach_response_command(text: str) -> Tuple[str, str] | None:
+        raw = text.strip()
+        prefixes = ["学习回答 ", "记住回答 ", "teach ", "teach-answer "]
+        body = ""
+        for prefix in prefixes:
+            if raw.lower().startswith(prefix.lower()):
+                body = raw[len(prefix):].strip()
+                break
+        if not body:
+            return None
+        if "=>" not in body:
+            return None
+        q, a = body.split("=>", 1)
+        q, a = q.strip(), a.strip()
+        if not q or not a:
+            return None
+        return q, a
+
+    def _find_memorized_response(self, text: str) -> str | None:
+        query = text.strip()
+        if not query:
+            return None
+        if query in self.response_memory:
+            return self.response_memory[query]
+
+        best_answer = None
+        best_score = 0.0
+        for q, a in self.response_memory.items():
+            score = SequenceMatcher(None, query, q).ratio()
+            if score > best_score:
+                best_score = score
+                best_answer = a
+        if best_score >= 0.9:
+            return best_answer
+        return None
+
+    def _remember_response(self, question: str, answer: str, prediction: Prediction, force: bool = False) -> None:
+        q = question.strip()
+        a = answer.strip()
+        if not q or not a:
+            return
+        if len(q) < 2 or len(q) > 80 or len(a) > 600:
+            return
+        if self._is_low_signal_input(q):
+            return
+        if not force:
+            if prediction.confidence < RESPONSE_MEMORY_MIN_CONFIDENCE:
+                return
+            if prediction.intent in {"unknown", "goodbye"}:
+                return
+
+        if q not in self.response_memory and len(self.response_memory) >= MAX_RESPONSE_MEMORY:
+            oldest = next(iter(self.response_memory))
+            self.response_memory.pop(oldest, None)
+        self.response_memory[q] = a
     def _think_before_answer(self, text: str) -> dict:
         """Internal thinking step before answer/search (not exposed verbosely)."""
         return {
@@ -588,8 +681,22 @@ class SimpleChineseAIAssistant:
         self.last_user_text = normalized_text
         self._extract_user_name(normalized_text)
 
+        teach_pair = self._parse_teach_response_command(normalized_text)
+        if teach_pair is not None:
+            q, a = teach_pair
+            self._remember_response(q, a, Prediction(intent="recommend", confidence=1.0), force=True)
+            self.persist_response_memory()
+            return "我记住了。以后你问这个问题，我会优先按你教的方式回答。", Prediction(intent="recommend", confidence=1.0)
+
+        memorized = self._find_memorized_response(normalized_text)
+        if memorized:
+            return memorized, Prediction(intent="recommend", confidence=0.95)
+
         if self._is_capability_gap_request(normalized_text):
-            return self._capability_upgrade_answer(), Prediction(intent="recommend", confidence=0.92)
+            answer = self._capability_upgrade_answer()
+            pred = Prediction(intent="recommend", confidence=0.92)
+            self._remember_response(normalized_text, answer, pred)
+            return answer, pred
 
         compare_answer = self._try_compare_entities_question(normalized_text)
         if compare_answer:
@@ -624,11 +731,16 @@ class SimpleChineseAIAssistant:
             )
 
         if self._is_replicate_request(normalized_text):
-            return self._replicate_with_reasoning(normalized_text), Prediction(intent="recommend", confidence=0.88)
+            answer = self._replicate_with_reasoning(normalized_text)
+            pred = Prediction(intent="recommend", confidence=0.88)
+            self._remember_response(normalized_text, answer, pred)
+            return answer, pred
 
         remembered = self._try_answer_with_web_knowledge(normalized_text)
         if remembered:
-            return remembered, Prediction(intent="recommend", confidence=0.75)
+            pred = Prediction(intent="recommend", confidence=0.75)
+            self._remember_response(normalized_text, remembered, pred)
+            return remembered, pred
         bayes_pred = self.classifier.predict(normalized_text)
         prediction = self._route_intent(normalized_text, bayes_pred)
         intent = prediction.intent
@@ -638,12 +750,16 @@ class SimpleChineseAIAssistant:
             reasoning_hint = self._reasoning_hint_for_query(normalized_text)
             if reasoning_hint and "我会参考已学到的思考方法" not in web_answer:
                 web_answer = f"{web_answer}\n{reasoning_hint}"
-            return web_answer, Prediction(intent="recommend", confidence=0.8)
+            pred = Prediction(intent="recommend", confidence=0.8)
+            self._remember_response(normalized_text, web_answer, pred)
+            return web_answer, pred
 
         if intent == "greeting":
             self.last_intent = intent
             self._learn_from_interaction(normalized_text, prediction)
-            return "你好！我能做问候、计算、天气说明和学习建议。", prediction
+            answer = "你好！我能做问候、计算、天气说明和学习建议。"
+            self._remember_response(normalized_text, answer, prediction)
+            return answer, prediction
 
         if intent == "math":
             math_result = self._safe_eval_expression(normalized_text)
@@ -651,36 +767,51 @@ class SimpleChineseAIAssistant:
             if math_result is None:
                 return "我识别到你在问计算，但表达式太复杂或不合法。请试试：18*7 或 (12+8)/2。", prediction
             self._learn_from_interaction(normalized_text, prediction)
-            return f"计算结果是：{math_result}", prediction
+            answer = f"计算结果是：{math_result}"
+            self._remember_response(normalized_text, answer, prediction)
+            return answer, prediction
 
         if intent == "weather":
             self.last_intent = intent
             self._learn_from_interaction(normalized_text, prediction)
-            return "我目前是离线版，不能实时联网查天气；你可以告诉我城市，我给你出行建议模板。", prediction
+            answer = "我目前是离线版，不能实时联网查天气；你可以告诉我城市，我给你出行建议模板。"
+            self._remember_response(normalized_text, answer, prediction)
+            return answer, prediction
 
         if intent == "recommend":
             self.last_intent = intent
             self._learn_from_interaction(normalized_text, prediction)
             if self._is_thinking_request(normalized_text) or len(normalized_text) >= 10:
-                return self._build_thinking_response(normalized_text), prediction
+                answer = self._build_thinking_response(normalized_text)
+                self._remember_response(normalized_text, answer, prediction)
+                return answer, prediction
             base = "如果你从 0 开始：先学 Python 基础，再做 2 个小项目，然后学机器学习与深度学习。"
             reasoning_hint = self._reasoning_hint_for_query(normalized_text)
             if reasoning_hint:
                 return f"{base}\n{reasoning_hint}", prediction
+            self._remember_response(normalized_text, base, prediction)
             return base, prediction
 
         if intent == "goodbye":
             self.last_intent = intent
-            return "好的，我们下次继续。", prediction
+            answer = "好的，我们下次继续。"
+            self._remember_response(normalized_text, answer, prediction)
+            return answer, prediction
 
         if self._identity_like_text(normalized_text):
-            return "我理解你在表达自己。你也可以告诉我你现在最想解决的问题，我会尽量帮你。", prediction
+            answer = "我理解你在表达自己。你也可以告诉我你现在最想解决的问题，我会尽量帮你。"
+            self._remember_response(normalized_text, answer, prediction)
+            return answer, prediction
 
         reasoning_hint = self._reasoning_hint_for_query(normalized_text)
         if reasoning_hint:
             return f"这个问题我还不够确定，但我可以按这个思路帮你：{reasoning_hint} 你可以再补一个具体目标。", prediction
 
         if len(normalized_text.strip()) >= 4:
-            return self._build_thinking_response(normalized_text), prediction
+            answer = self._build_thinking_response(normalized_text)
+            self._remember_response(normalized_text, answer, prediction)
+            return answer, prediction
 
-        return "这个输入信息太少或不明确。你可以试试：'帮我算 25*4'、'推荐学习路线'、'今天北京天气'。", prediction
+        answer = "这个输入信息太少或不明确。你可以试试：'帮我算 25*4'、'推荐学习路线'、'今天北京天气'。"
+        self._remember_response(normalized_text, answer, prediction)
+        return answer, prediction
