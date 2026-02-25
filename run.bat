@@ -1,2 +1,2 @@
 @echo off
-python main.py --web-learn --startup-sync-seconds 300 %*
+python main.py --web-learn --startup-sync-seconds 3000 %*
