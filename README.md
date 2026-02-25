@@ -1,10 +1,22 @@
 # 从 0 开始的 AI：本地中文命令行助手（可训练）
 
-这个项目是一个**纯本地、零依赖云 API** 的 AI 入门示例。
+如果你是新手，**只看下面 3 步就能训练成功**。
 
-- 用朴素贝叶斯做意图分类。
-- 支持关键词路由 + 相似度兜底。
-- 支持你自己准备数据进行训练并保存模型。
+## 新手 3 步（最简单）
+
+1. 打开训练向导：
+
+```bash
+python train.py --wizard --out my_model.json
+```
+
+2. 按提示输入几条样本（不会就直接回车用默认示例）。
+
+3. 用你训练出的模型聊天：
+
+```bash
+python main.py --model my_model.json
+```
 
 ---
 
@@ -14,7 +26,7 @@
 
 ---
 
-## 2. 快速运行
+## 2. 快速运行（不训练也能用）
 
 ```bash
 python main.py --demo
@@ -23,23 +35,29 @@ python main.py --ask "18*7等于多少"
 
 ---
 
-## 3. 我如何训练他（重点）
+## 3. 我如何训练他（详细版）
 
-### 3.1 使用内置数据训练
-
-```bash
-python train.py --out model.json
-```
-
-训练完成后使用：
+### 3.1 方法 A：向导模式（推荐新手）
 
 ```bash
-python main.py --model model.json --ask "你好"
+python train.py --wizard --out my_model.json
 ```
 
-### 3.2 用你自己的数据训练
+完成后：
 
-先新建一个 JSON 文件，比如 `my_data.json`：
+```bash
+python main.py --model my_model.json
+```
+
+### 3.2 方法 B：先生成模板，再编辑
+
+先生成模板：
+
+```bash
+python train.py --init-data my_data.json
+```
+
+编辑 `my_data.json`（示例格式）：
 
 ```json
 {
@@ -49,26 +67,42 @@ python main.py --model model.json --ask "你好"
 }
 ```
 
-然后训练：
+训练并保存：
 
 ```bash
 python train.py --data my_data.json --out my_model.json
 ```
 
-最后加载你的模型：
+加载模型：
 
 ```bash
 python main.py --model my_model.json
 ```
 
+### 3.3 方法 C：使用内置数据直接训练
+
+```bash
+python train.py --out model.json
+python main.py --model model.json
+```
+
 ---
+
+### 3.4 常见问题（你这种情况）
+
+- 输入 `1` 这种信息太少的内容，助手会提示你补充问题，而不是乱猜意图。
+- 输入特别长的计算式（超长数字）会被拒绝，避免异常输出。
+- 像“我是.../我不是...”这类自我表达，助手会先做中性回应，不再硬套学习推荐。
+
 
 ## 4. 命令速查
 
 - 交互模式：`python main.py`
 - 单次提问：`python main.py --ask "你的问题"`
 - 演示模式：`python main.py --demo`
-- 模型训练：`python train.py --data my_data.json --out my_model.json`
+- 向导训练：`python train.py --wizard --out my_model.json`
+- 生成模板：`python train.py --init-data my_data.json`
+- 用 JSON 训练：`python train.py --data my_data.json --out my_model.json`
 - 加载模型：`python main.py --model my_model.json --ask "你好"`
 
 ---

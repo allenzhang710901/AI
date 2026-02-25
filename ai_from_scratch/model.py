@@ -18,9 +18,13 @@ KEYWORD_HINTS = {
     "greeting": ["你好", "哈喽", "在吗", "嗨", "hello", "hi"],
     "math": ["算", "计算", "多少", "加", "减", "乘", "除", "+", "-", "*", "/"],
     "weather": ["天气", "温度", "下雨", "晴", "阴", "热", "冷", "风"],
-    "recommend": ["推荐", "建议", "学什么", "看什么", "怎么选"],
+    "recommend": ["推荐", "建议", "学什么", "看什么", "怎么选", "路线"],
     "goodbye": ["再见", "拜拜", "退出", "结束", "下次聊"],
 }
+MATH_EXPR_RE = re.compile(r"[\d\s+\-*/().]+")
+MIN_CONFIDENCE = 0.45
+MAX_EXPR_LEN = 60
+MAX_NUMBER_DIGITS = 12
 
 
 @dataclass
@@ -143,11 +147,16 @@ class SimpleChineseAIAssistant:
 
     @staticmethod
     def _safe_eval_expression(text: str) -> str | None:
-        expr_match = re.findall(r"[\d\s+\-*/().]+", text)
+        expr_match = MATH_EXPR_RE.findall(text)
         if not expr_match:
             return None
         expr = "".join(expr_match).strip()
         if not expr or not re.fullmatch(r"[\d\s+\-*/().]+", expr):
+            return None
+        if len(expr) > MAX_EXPR_LEN:
+            return None
+        number_tokens = re.findall(r"\d+", expr)
+        if any(len(n) > MAX_NUMBER_DIGITS for n in number_tokens):
             return None
         try:
             result = eval(expr, {"__builtins__": {}}, {})  # noqa: S307
@@ -181,20 +190,37 @@ class SimpleChineseAIAssistant:
                     best_intent = intent
         return best_intent, best_ratio
 
+    @staticmethod
+    def _is_low_signal_input(text: str) -> bool:
+        stripped = text.strip()
+        return bool(re.fullmatch(r"\d+", stripped) or len(stripped) <= 1)
+
     def _route_intent(self, user_text: str, bayes_pred: Prediction) -> Prediction:
+        if self._is_low_signal_input(user_text):
+            return Prediction("unknown", 0.0)
+
         keyword_intent = self._keyword_intent(user_text)
         if keyword_intent:
             boost = 0.85 if keyword_intent != bayes_pred.intent else max(0.9, bayes_pred.confidence)
             return Prediction(keyword_intent, boost)
 
         nearest_intent, nearest_score = self._closest_training_intent(user_text)
-        if nearest_score >= 0.62:
+        if nearest_score >= 0.72:
             return Prediction(nearest_intent, nearest_score)
 
-        if bayes_pred.confidence < 0.24 and self.last_intent:
+        if bayes_pred.confidence < 0.24 and self.last_intent in {"math", "weather"}:
             return Prediction(self.last_intent, 0.35)
 
+        if bayes_pred.confidence < MIN_CONFIDENCE:
+            return Prediction("unknown", bayes_pred.confidence)
+
         return bayes_pred
+
+    @staticmethod
+    def _identity_like_text(text: str) -> bool:
+        patterns = ["我是", "我不是", "我觉得", "我很", "我有点", "我想说"]
+        lowered = text.lower()
+        return any(p in lowered for p in patterns)
 
     def reply(self, user_text: str) -> Tuple[str, Prediction]:
         bayes_pred = self.classifier.predict(user_text)
@@ -203,28 +229,28 @@ class SimpleChineseAIAssistant:
 
         if intent == "greeting":
             self.last_intent = intent
-            return "你好！我现在比之前更聪明一点了：能做问候、计算、天气说明和学习建议。", prediction
+            return "你好！我能做问候、计算、天气说明和学习建议。", prediction
 
         if intent == "math":
             math_result = self._safe_eval_expression(user_text)
             self.last_intent = intent
             if math_result is None:
-                return "我识别到你在问计算题，但没找到可计算表达式（例：18*7、(12+8)/2）。", prediction
+                return "我识别到你在问计算，但表达式太复杂或不合法。请试试：18*7 或 (12+8)/2。", prediction
             return f"计算结果是：{math_result}", prediction
 
         if intent == "weather":
             self.last_intent = intent
-            return "我目前是离线版，不能实时联网查天气；但我可以先告诉你该带伞/穿衣的判断逻辑。", prediction
+            return "我目前是离线版，不能实时联网查天气；你可以告诉我城市，我给你出行建议模板。", prediction
 
         if intent == "recommend":
             self.last_intent = intent
-            return "如果你是从 0 开始：先学 Python 基础，再做 2 个小项目，然后学机器学习与深度学习。", prediction
+            return "如果你从 0 开始：先学 Python 基础，再做 2 个小项目，然后学机器学习与深度学习。", prediction
 
         if intent == "goodbye":
             self.last_intent = intent
             return "好的，我们下次继续。", prediction
 
-        if self.last_intent == "recommend":
-            return "你可以告诉我目标（找工作/转行/比赛），我会给你更具体的学习路线。", prediction
+        if self._identity_like_text(user_text):
+            return "我理解你在表达自己。你也可以告诉我你现在最想解决的问题，我会尽量帮你。", prediction
 
-        return "这个问题我还答不好。你可以换一种说法，或直接说：帮我算 25*4。", prediction
+        return "这个输入信息太少或不明确。你可以试试：'帮我算 25*4'、'推荐学习路线'、'今天北京天气'。", prediction
