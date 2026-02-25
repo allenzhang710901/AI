@@ -29,6 +29,7 @@ MAX_NUMBER_DIGITS = 12
 AUTO_LEARN_MIN_CONFIDENCE = 0.9
 AUTO_SAVE_EVERY = 3
 WEB_LOOKUP_CONFIDENCE_THRESHOLD = 0.8
+THINKING_CUE_WORDS = ["思路", "步骤", "方法", "先", "然后", "最后", "框架", "拆解", "验证"]
 
 
 @dataclass
@@ -397,6 +398,41 @@ class SimpleChineseAIAssistant:
         topic = re.sub(r"(是啥|是什么|啥意思|是什么东西|怎么样|资料|介绍|有哪些)$", "", topic).strip()
         return re.sub(r"\s+", " ", topic)
 
+    @staticmethod
+    def _extract_reasoning_snippets(summary: str) -> list[str]:
+        parts = re.split(r"[。；;!?！？]", summary)
+        snippets: list[str] = []
+        for part in parts:
+            text = part.strip()
+            if not text or len(text) < 8:
+                continue
+            if any(word in text for word in THINKING_CUE_WORDS):
+                snippets.append(text)
+        return snippets[:3]
+
+    def _reasoning_hint_for_query(self, text: str) -> str | None:
+        if not self.web_learning_enabled:
+            return None
+
+        best = self.web_knowledge.find_best_relevant(text)
+        if best:
+            _, summary, score, _ = best
+            if score >= 0.45:
+                snippets = self._extract_reasoning_snippets(summary)
+                if snippets:
+                    return f"我会参考已学到的思考方法：{snippets[0]}。"
+
+        # Fallback: if query matching is weak, still reuse any learned reasoning pattern
+        # so web-learned knowledge can influence later conversations.
+        for item in self.web_knowledge.data.values():
+            summary = item.get("summary", "")
+            if not isinstance(summary, str):
+                continue
+            snippets = self._extract_reasoning_snippets(summary)
+            if snippets:
+                return f"我会参考已学到的思考方法：{snippets[0]}。"
+        return None
+
     def _try_web_lookup_for_query(self, text: str, prediction: Prediction) -> Tuple[str | None, bool]:
         if not self.web_learning_enabled:
             return None, False
@@ -466,6 +502,9 @@ class SimpleChineseAIAssistant:
 
         web_answer, _ = self._try_web_lookup_for_query(normalized_text, prediction)
         if web_answer:
+            reasoning_hint = self._reasoning_hint_for_query(normalized_text)
+            if reasoning_hint and "我会参考已学到的思考方法" not in web_answer:
+                web_answer = f"{web_answer}\n{reasoning_hint}"
             return web_answer, Prediction(intent="recommend", confidence=0.8)
 
         if intent == "greeting":
@@ -489,7 +528,11 @@ class SimpleChineseAIAssistant:
         if intent == "recommend":
             self.last_intent = intent
             self._learn_from_interaction(normalized_text, prediction)
-            return "如果你从 0 开始：先学 Python 基础，再做 2 个小项目，然后学机器学习与深度学习。", prediction
+            base = "如果你从 0 开始：先学 Python 基础，再做 2 个小项目，然后学机器学习与深度学习。"
+            reasoning_hint = self._reasoning_hint_for_query(normalized_text)
+            if reasoning_hint:
+                return f"{base}\n{reasoning_hint}", prediction
+            return base, prediction
 
         if intent == "goodbye":
             self.last_intent = intent
@@ -497,5 +540,9 @@ class SimpleChineseAIAssistant:
 
         if self._identity_like_text(normalized_text):
             return "我理解你在表达自己。你也可以告诉我你现在最想解决的问题，我会尽量帮你。", prediction
+
+        reasoning_hint = self._reasoning_hint_for_query(normalized_text)
+        if reasoning_hint:
+            return f"这个问题我还不够确定，但我可以按这个思路帮你：{reasoning_hint} 你可以再补一个具体目标。", prediction
 
         return "这个输入信息太少或不明确。你可以试试：'帮我算 25*4'、'推荐学习路线'、'今天北京天气'。", prediction
